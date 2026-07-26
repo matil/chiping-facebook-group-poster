@@ -121,9 +121,8 @@ async function loginIfNeeded(page, config) {
   await submit.click({ timeout: 10000 });
   await page.waitForTimeout(3000);
   await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-  if (await isSecurityChallenge(page) || await hasLoginForm(page)) {
-    throw new FacebookSessionRequiredError('Facebook requires a security check or rejected the automatic login');
-  }
+  if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError('Facebook requires a security check');
+  if (await hasLoginForm(page)) throw new FacebookSessionRequiredError('Facebook did not accept the configured login credentials');
 }
 
 async function selectPostingProfile(page, config) {
