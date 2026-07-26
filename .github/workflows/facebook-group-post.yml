@@ -109,7 +109,8 @@ jobs:
         if: always() && steps.poster.outputs.outcome == 'verification_failed'
         env:
           VERIFICATION_REASON: ${{ steps.poster.outputs.verification_reason }}
-        run: printf 'Facebook access check failed: %s\n' "$VERIFICATION_REASON"
+        run: |
+          printf 'Facebook access check failed: %s\n' "$VERIFICATION_REASON"
 
       - name: Flag a newly blocked queue
         if: steps.poster.outputs.alert == 'true'
