@@ -1,0 +1,28 @@
+services:
+  facebook-group-poster:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTER_ENABLE_VNC: "false"
+    ports:
+      - "127.0.0.1:8788:8788"
+    volumes:
+      - facebook-poster-data:/data
+
+  # Start this only for the one-time Facebook login or a later security re-check.
+  # It is intentionally reachable only through an SSH tunnel to localhost.
+  facebook-group-poster-login:
+    build: .
+    profiles: ["setup"]
+    env_file: .env
+    environment:
+      POSTER_ENABLE_VNC: "true"
+    command: ["node", "src/login.mjs"]
+    ports:
+      - "127.0.0.1:6080:6080"
+    volumes:
+      - facebook-poster-data:/data
+
+volumes:
+  facebook-poster-data:

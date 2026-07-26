@@ -1,0 +1,15 @@
+{
+  "name": "chiping-facebook-group-poster",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "login": "node src/login.mjs",
+    "action": "node src/action-runner.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.62.0"
+  }
+}
