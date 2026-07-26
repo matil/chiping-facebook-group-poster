@@ -89,6 +89,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
   let changed = false;
   let alert = false;
   let outcome = 'idle';
+  let verificationReason = '';
   const payload = await readEventPayload(String(env.FACEBOOK_EVENT_PATH || '').trim());
   if (payload && validPayload(payload)) {
     const queued = await store.enqueue(payload);
@@ -112,6 +113,9 @@ export async function runGitHubAction(env = process.env, options = {}) {
     } catch (error) {
       outcome = 'verification_failed';
       alert = true;
+      verificationReason = error instanceof FacebookSessionRequiredError
+        ? String(error.message || 'facebook_session_required').slice(0, 160)
+        : 'facebook_access_check_failed';
     }
   } else if (store.summary().blocked > 0) {
     outcome = 'blocked';
@@ -154,13 +158,13 @@ export async function runGitHubAction(env = process.env, options = {}) {
       storageStateFile: config.storageStateFile,
     });
   }
-  await writeOutputs({ outcome, state_changed: changed, alert });
-  return { outcome, stateChanged: changed, alert, summary: store.summary() };
+  await writeOutputs({ outcome, state_changed: changed, alert, verification_reason: verificationReason });
+  return { outcome, stateChanged: changed, alert, verificationReason, summary: store.summary() };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runGitHubAction().catch(async () => {
-    await writeOutputs({ outcome: 'error', state_changed: false, alert: true });
+    await writeOutputs({ outcome: 'error', state_changed: false, alert: true, verification_reason: 'action_runner_failed' });
     process.exitCode = 1;
   });
 }

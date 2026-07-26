@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { runGitHubAction } from '../src/action-runner.mjs';
 import { restoreEncryptedActionState } from '../src/action-state.mjs';
+import { FacebookSessionRequiredError } from '../src/facebook.mjs';
 
 const stateKey = 'github-action-state-key-that-is-longer-than-thirty-two-characters';
 
@@ -84,6 +85,23 @@ test('GitHub Action can verify Group access without posting or a queued item', a
     assert.equal(verified, true);
     assert.equal(result.outcome, 'verified');
     assert.equal(result.stateChanged, true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('GitHub Action returns only a safe reason when access verification is blocked', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory);
+    env.FACEBOOK_ACTION_VERIFY_GROUP_ACCESS = 'true';
+    const result = await runGitHubAction(env, {
+      verifyGroupAccess: async () => {
+        throw new FacebookSessionRequiredError('Configured Facebook posting profile is not available');
+      },
+    });
+    assert.equal(result.outcome, 'verification_failed');
+    assert.equal(result.verificationReason, 'Configured Facebook posting profile is not available');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
