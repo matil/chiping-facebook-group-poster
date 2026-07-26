@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { FacebookSessionRequiredError, postFacebookGroupJob } from './facebook.mjs';
+import { FacebookSessionRequiredError, postFacebookGroupJob, verifyFacebookGroupAccess } from './facebook.mjs';
 import { loadConfig } from './config.mjs';
 import { restoreEncryptedActionState, saveEncryptedActionState } from './action-state.mjs';
 import { JobStore } from './store.mjs';
@@ -104,7 +104,16 @@ export async function runGitHubAction(env = process.env, options = {}) {
   }
 
   const summary = store.summary();
-  if (summary.blocked > 0) {
+  if (enabled(env.FACEBOOK_ACTION_VERIFY_GROUP_ACCESS)) {
+    changed = true;
+    try {
+      await (options.verifyGroupAccess || verifyFacebookGroupAccess)(config, options);
+      outcome = 'verified';
+    } catch (error) {
+      outcome = 'verification_failed';
+      alert = true;
+    }
+  } else if (store.summary().blocked > 0) {
     outcome = 'blocked';
   } else if (!enabled(env.FACEBOOK_ACTION_POSTING_ENABLED)) {
     if (summary.pending || summary.retry) outcome = 'dry_run';
@@ -137,6 +146,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
     }
   }
   if (changed) {
+    await store.persist();
     await saveEncryptedActionState({
       encryptedFile,
       secret: stateSecret,

@@ -71,6 +71,24 @@ test('GitHub Action ignores malformed repository-dispatch payloads', async () =>
   }
 });
 
+test('GitHub Action can verify Group access without posting or a queued item', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory);
+    env.FACEBOOK_ACTION_VERIFY_GROUP_ACCESS = 'true';
+    let verified = false;
+    const result = await runGitHubAction(env, {
+      verifyGroupAccess: async () => { verified = true; },
+      postJob: async () => { throw new Error('verification must never post'); },
+    });
+    assert.equal(verified, true);
+    assert.equal(result.outcome, 'verified');
+    assert.equal(result.stateChanged, true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('GitHub Action posts one queued item and respects the daily interval', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
   try {

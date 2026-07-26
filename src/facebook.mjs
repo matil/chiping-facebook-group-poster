@@ -186,6 +186,25 @@ async function downloadImage(imageUrl, fetchImpl = fetch) {
   return { bytes, mimeType, filename: `chiping-deal.${extension}` };
 }
 
+export async function verifyFacebookGroupAccess(config, options = {}) {
+  const playwright = options.playwright || await import('playwright');
+  const session = await createFacebookContext(playwright.chromium, config);
+  const { context } = session;
+  try {
+    const page = context.pages()[0] || await context.newPage();
+    await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await loginIfNeeded(page, config);
+    await selectPostingProfile(page, config);
+    const composer = await firstVisibleLocator(page, COMPOSER_SELECTORS);
+    if (!composer) throw new FacebookSessionRequiredError('Facebook group posting is not available to the configured profile');
+    return { groupUrl: config.groupUrl };
+  } finally {
+    if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
+    await context.close();
+    if (session.browser) await session.browser.close();
+  }
+}
+
 function validatePayload(payload) {
   if (payload?.site !== 'chiping' || payload?.channel !== 'facebook' || payload?.language !== 'he') {
     throw new Error('Unexpected social payload');

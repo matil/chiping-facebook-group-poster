@@ -55,6 +55,11 @@ Facebook posts, retries transient failures hourly, and blocks the retained queue
 a Facebook checkpoint, CAPTCHA, device approval, or 2FA request. It cannot and does
 not bypass Facebook account security.
 
+After setting the three Facebook profile secrets, run the workflow manually with
+`verify_group_access=true`. It signs in, switches to the configured additional
+profile, and checks that the Group composer is visible. It does not enqueue, type,
+or publish a post. Only enable the posting secret after that check succeeds.
+
 ## Security model
 
 - Facebook credentials are never placed in code, Git, Cloudflare, Make, or Supabase.

@@ -12,6 +12,11 @@ on:
         required: false
         type: boolean
         default: false
+      verify_group_access:
+        description: Log in and check the configured Group profile without posting
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   actions: write
@@ -83,6 +88,7 @@ jobs:
           FACEBOOK_STATE_ENCRYPTION_KEY: ${{ secrets.FACEBOOK_STATE_ENCRYPTION_KEY }}
           FACEBOOK_ACTION_POSTING_ENABLED: ${{ secrets.FACEBOOK_ACTION_POSTING_ENABLED }}
           FACEBOOK_ACTION_RESUME: ${{ inputs.resume_blocked_queue }}
+          FACEBOOK_ACTION_VERIFY_GROUP_ACCESS: ${{ inputs.verify_group_access }}
           FACEBOOK_LOGIN_EMAIL_FILE: ${{ runner.temp }}/chiping-facebook-secrets/email
           FACEBOOK_LOGIN_PASSWORD_FILE: ${{ runner.temp }}/chiping-facebook-secrets/password
           FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}
