@@ -59,6 +59,18 @@ test('GitHub Action encrypts a queued payload while posting stays disabled', asy
   }
 });
 
+test('GitHub Action ignores malformed repository-dispatch payloads', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, { client_payload: {} });
+    const result = await runGitHubAction(env);
+    assert.equal(result.outcome, 'invalid_payload');
+    assert.equal(result.stateChanged, false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('GitHub Action posts one queued item and respects the daily interval', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
   try {

@@ -31,6 +31,21 @@ async function readEventPayload(file) {
   }
 }
 
+function validPayload(payload) {
+  const key = String(payload?.idempotency_key || payload?.idempotencyKey || '');
+  return payload?.site === 'chiping'
+    && payload?.channel === 'facebook'
+    && payload?.language === 'he'
+    && /^chiping-facebook:v1:\d+$/.test(key)
+    && /^\d+$/.test(String(payload?.productId || ''))
+    && typeof payload?.message === 'string'
+    && payload.message.trim().length > 0
+    && typeof payload?.imageUrl === 'string'
+    && payload.imageUrl.startsWith('https://')
+    && typeof payload?.itemUrl === 'string'
+    && /^https:\/\/www\.chiping\.co\.il\/\?item=\d+/.test(payload.itemUrl);
+}
+
 function lastPostedAt(store) {
   return Math.max(...Object.values(store.state.jobs)
     .filter((job) => job?.status === 'posted')
@@ -75,10 +90,12 @@ export async function runGitHubAction(env = process.env, options = {}) {
   let alert = false;
   let outcome = 'idle';
   const payload = await readEventPayload(String(env.FACEBOOK_EVENT_PATH || '').trim());
-  if (payload) {
+  if (payload && validPayload(payload)) {
     const queued = await store.enqueue(payload);
     changed ||= queued.accepted;
     outcome = queued.deduplicated ? 'deduplicated' : 'queued';
+  } else if (payload) {
+    outcome = 'invalid_payload';
   }
   if (enabled(env.FACEBOOK_ACTION_RESUME)) {
     const resumed = await store.resumeBlocked();
