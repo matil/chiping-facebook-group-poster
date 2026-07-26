@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { signPayload } from '../src/auth.mjs';
-import { normalizeGroupUrl } from '../src/config.mjs';
+import { loadConfig, normalizeGroupUrl } from '../src/config.mjs';
 import { createServer } from '../src/server.mjs';
 import { readLoginCredentials } from '../src/facebook.mjs';
 import { JobStore } from '../src/store.mjs';
@@ -28,6 +28,11 @@ test('Chiping group URL is fixed to the intended Facebook group', () => {
   assert.equal(normalizeGroupUrl('https://www.facebook.com/groups/chiping/'), 'https://www.facebook.com/groups/chiping');
   assert.throws(() => normalizeGroupUrl('https://www.facebook.com/groups/other'), /Chiping Facebook group/);
   assert.throws(() => normalizeGroupUrl('http://www.facebook.com/groups/chiping'), /https/);
+});
+
+test('posting profile selection is opt-in and read from configuration', () => {
+  assert.equal(loadConfig({ FACEBOOK_POSTING_PROFILE_NAME: 'Chiping Deals' }).facebookPostingProfileName, 'Chiping Deals');
+  assert.equal(loadConfig({}).facebookPostingProfileName, '');
 });
 
 test('automatic login reads credentials only from configured secret files', async () => {

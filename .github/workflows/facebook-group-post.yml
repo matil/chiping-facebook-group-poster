@@ -67,6 +67,7 @@ jobs:
         env:
           FACEBOOK_LOGIN_EMAIL: ${{ secrets.FACEBOOK_LOGIN_EMAIL }}
           FACEBOOK_LOGIN_PASSWORD: ${{ secrets.FACEBOOK_LOGIN_PASSWORD }}
+          FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}
         run: |
           set -euo pipefail
           umask 077
@@ -84,6 +85,7 @@ jobs:
           FACEBOOK_ACTION_RESUME: ${{ inputs.resume_blocked_queue }}
           FACEBOOK_LOGIN_EMAIL_FILE: ${{ runner.temp }}/chiping-facebook-secrets/email
           FACEBOOK_LOGIN_PASSWORD_FILE: ${{ runner.temp }}/chiping-facebook-secrets/password
+          FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}
           FACEBOOK_STORAGE_STATE_FILE: ${{ runner.temp }}/chiping-facebook-data/facebook-storage-state.json
           POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
           POSTER_HEADLESS: 'true'

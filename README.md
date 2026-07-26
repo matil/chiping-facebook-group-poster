@@ -27,6 +27,7 @@ Set these **repository secrets** under `Settings > Secrets and variables > Actio
 | --- | --- |
 | `FACEBOOK_LOGIN_EMAIL` | Dedicated Facebook posting-account email |
 | `FACEBOOK_LOGIN_PASSWORD` | Dedicated Facebook posting-account password |
+| `FACEBOOK_POSTING_PROFILE_NAME` | Exact additional-profile display name to use for Group posts |
 | `FACEBOOK_STATE_ENCRYPTION_KEY` | A new random value, at least 32 characters |
 | `FACEBOOK_ACTION_POSTING_ENABLED` | Keep unset or `false` until a dry-run review is complete; set `true` only to permit posting |
 

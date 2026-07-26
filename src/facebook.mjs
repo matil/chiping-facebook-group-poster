@@ -126,6 +126,51 @@ async function loginIfNeeded(page, config) {
   }
 }
 
+async function selectPostingProfile(page, config) {
+  const profileName = String(config.facebookPostingProfileName || '').trim();
+  if (!profileName) return;
+  if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
+
+  const accountMenu = await firstVisibleLocator(page, [
+    '[aria-label="Your profile"]',
+    '[aria-label*="Your profile"]',
+    '[aria-label*="\u05d4\u05e4\u05e8\u05d5\u05e4\u05d9\u05dc \u05e9\u05dc\u05da"]',
+  ]);
+  if (!accountMenu) {
+    throw new FacebookSessionRequiredError('Facebook could not open the profile switcher');
+  }
+  await accountMenu.click();
+  await page.waitForTimeout(500);
+
+  const selectProfile = async () => {
+    const option = page.getByText(profileName, { exact: true }).last();
+    return await option.isVisible().catch(() => false) ? option : null;
+  };
+  let option = await selectProfile();
+  if (!option) {
+    const allProfiles = await firstVisibleLocator(page, [
+      '[role="menuitem"]:has-text("See all profiles")',
+      '[role="menuitem"]:has-text("Switch profile")',
+      '[role="menuitem"]:has-text("\u05db\u05dc \u05d4\u05e4\u05e8\u05d5\u05e4\u05d9\u05dc\u05d9\u05dd")',
+      '[role="menuitem"]:has-text("\u05d4\u05d7\u05dc\u05e4\u05ea \u05e4\u05e8\u05d5\u05e4\u05d9\u05dc")',
+    ]);
+    if (allProfiles) {
+      await allProfiles.click();
+      await page.waitForTimeout(500);
+      option = await selectProfile();
+    }
+  }
+  if (!option) {
+    throw new FacebookSessionRequiredError('Configured Facebook posting profile is not available');
+  }
+  await option.click();
+  await page.waitForTimeout(1200);
+  if (await isSecurityChallenge(page) || await hasLoginForm(page)) {
+    throw new FacebookSessionRequiredError('Facebook rejected the configured posting profile');
+  }
+  await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+}
+
 async function downloadImage(imageUrl, fetchImpl = fetch) {
   const url = new URL(String(imageUrl || ''));
   if (url.protocol !== 'https:') throw new Error('Only HTTPS image URLs are allowed');
@@ -168,6 +213,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     const page = context.pages()[0] || await context.newPage();
     await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await loginIfNeeded(page, config);
+    await selectPostingProfile(page, config);
 
     const composer = await firstVisibleLocator(page, COMPOSER_SELECTORS);
     if (!composer) throw new Error('Facebook group composer was not found');

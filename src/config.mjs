@@ -43,6 +43,7 @@ export function loadConfig(env = process.env) {
     retryIntervalMs: positiveInteger(env.POSTER_RETRY_INTERVAL_MS, 60000, 5000, 3600000),
     facebookLoginEmailFile: String(env.FACEBOOK_LOGIN_EMAIL_FILE || '').trim(),
     facebookLoginPasswordFile: String(env.FACEBOOK_LOGIN_PASSWORD_FILE || '').trim(),
+    facebookPostingProfileName: String(env.FACEBOOK_POSTING_PROFILE_NAME || '').trim(),
     alertWebhookUrl: String(env.POSTER_ALERT_WEBHOOK_URL || '').trim(),
   };
 }
