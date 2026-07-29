@@ -45,6 +45,7 @@ export function loadConfig(env = process.env) {
     facebookLoginPasswordFile: String(env.FACEBOOK_LOGIN_PASSWORD_FILE || '').trim(),
     facebookPostingProfileName: String(env.FACEBOOK_POSTING_PROFILE_NAME || '').trim(),
     trustVerifiedPostingProfile: boolean(env.FACEBOOK_TRUST_VERIFIED_PROFILE, false),
+    facebookDebugDir: String(env.FACEBOOK_DEBUG_DIR || '').trim(),
     alertWebhookUrl: String(env.POSTER_ALERT_WEBHOOK_URL || '').trim(),
   };
 }
