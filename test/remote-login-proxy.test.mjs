@@ -41,3 +41,14 @@ test('remote login proxy rejects invalid upstreams and write methods', async () 
   assert.equal(write.status, 405);
   assert.equal(fetches, 0);
 });
+
+test('remote login proxy exposes a non-cached deployment marker', async () => {
+  const response = await proxyRemoteLogin(
+    new Request('https://fb-login.chiping.co.il/__ready'),
+    {}
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), '__DEPLOYMENT_MARKER__');
+  assert.equal(response.headers.get('Cache-Control'), 'no-store, max-age=0');
+});
