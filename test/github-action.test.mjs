@@ -134,3 +134,18 @@ test('GitHub Action posts one queued item and respects the daily interval', asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('remote login workflow uses protected VNC and encrypts the resulting session', async () => {
+  const workflow = await readFile(
+    path.join(process.cwd(), '.github', 'workflows', 'facebook-interactive-login.yml'),
+    'utf8'
+  );
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /FACEBOOK_VNC_PASSWORD/);
+  assert.match(workflow, /trycloudflare\\\.com/);
+  assert.doesNotMatch(workflow, /FACEBOOK_CLOUDFLARE_TUNNEL_TOKEN/);
+  assert.match(workflow, /x11vnc/);
+  assert.match(workflow, /node src\/interactive-login\.mjs/);
+  assert.match(workflow, /Save encrypted Facebook state/);
+  assert.doesNotMatch(workflow, /FACEBOOK_ACTION_POSTING_ENABLED/);
+});

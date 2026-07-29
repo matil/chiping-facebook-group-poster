@@ -1,0 +1,129 @@
+name: Chiping Facebook Remote Login
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: chiping-facebook-group-poster
+  cancel-in-progress: false
+
+jobs:
+  login:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Restore Chromium
+        id: browser-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Save Chromium
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Restore encrypted Facebook state
+        uses: actions/cache/restore@v4
+        with:
+          path: .facebook-state
+          key: facebook-state-${{ github.run_id }}
+          restore-keys: |
+            facebook-state-
+
+      - name: Prepare ephemeral Facebook secret files
+        shell: bash
+        env:
+          FACEBOOK_LOGIN_EMAIL: ${{ secrets.FACEBOOK_LOGIN_EMAIL }}
+          FACEBOOK_LOGIN_PASSWORD: ${{ secrets.FACEBOOK_LOGIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/chiping-facebook-secrets"
+          printf %s "$FACEBOOK_LOGIN_EMAIL" > "$RUNNER_TEMP/chiping-facebook-secrets/email"
+          printf %s "$FACEBOOK_LOGIN_PASSWORD" > "$RUNNER_TEMP/chiping-facebook-secrets/password"
+
+      - name: Start protected remote desktop
+        id: remote
+        shell: bash
+        env:
+          DISPLAY: :99
+          FACEBOOK_VNC_PASSWORD: ${{ secrets.FACEBOOK_VNC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends xvfb x11vnc openbox novnc websockify
+          curl -fsSLo "$RUNNER_TEMP/cloudflared" \
+            https://github.com/cloudflare/cloudflared/releases/download/2026.7.3/cloudflared-linux-amd64
+          printf '%s  %s\n' \
+            '9d71c677db00134c1bd4144b7783486b654ad281b1ea62b4972098d19f770f17' \
+            "$RUNNER_TEMP/cloudflared" | sha256sum --check
+          chmod 700 "$RUNNER_TEMP/cloudflared"
+          Xvfb :99 -screen 0 1365x900x24 -nolisten tcp >"$RUNNER_TEMP/xvfb.log" 2>&1 &
+          openbox >"$RUNNER_TEMP/openbox.log" 2>&1 &
+          x11vnc -storepasswd "$FACEBOOK_VNC_PASSWORD" "$RUNNER_TEMP/x11vnc.pass" >/dev/null
+          x11vnc -display :99 -forever -shared -rfbauth "$RUNNER_TEMP/x11vnc.pass" \
+            -localhost >"$RUNNER_TEMP/x11vnc.log" 2>&1 &
+          websockify --web /usr/share/novnc 6080 localhost:5900 \
+            >"$RUNNER_TEMP/websockify.log" 2>&1 &
+          curl --fail --silent --show-error http://127.0.0.1:6080/vnc.html >/dev/null
+          "$RUNNER_TEMP/cloudflared" tunnel --no-autoupdate \
+            --url http://localhost:6080 >"$RUNNER_TEMP/cloudflared.log" 2>&1 &
+          remote_url=''
+          for attempt in {1..30}; do
+            remote_url="$(
+              grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' \
+                "$RUNNER_TEMP/cloudflared.log" | tail -1 || true
+            )"
+            test -n "$remote_url" && break
+            sleep 1
+          done
+          test -n "$remote_url"
+          browser_url="${remote_url}/vnc.html?autoconnect=true&resize=scale"
+          printf 'remote_url=%s\n' "$browser_url" >> "$GITHUB_OUTPUT"
+          {
+            printf '### Temporary Facebook browser\n\n'
+            printf 'Open [%s](%s) while this workflow is running.\n' "$browser_url" "$browser_url"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Complete and encrypt remote Facebook login
+        env:
+          DISPLAY: :99
+          FACEBOOK_ACTION_STATE_FILE: ${{ github.workspace }}/.facebook-state/facebook-agent.enc
+          FACEBOOK_STATE_ENCRYPTION_KEY: ${{ secrets.FACEBOOK_STATE_ENCRYPTION_KEY }}
+          FACEBOOK_LOGIN_EMAIL_FILE: ${{ runner.temp }}/chiping-facebook-secrets/email
+          FACEBOOK_LOGIN_PASSWORD_FILE: ${{ runner.temp }}/chiping-facebook-secrets/password
+          FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}
+          FACEBOOK_STORAGE_STATE_FILE: ${{ runner.temp }}/chiping-facebook-data/facebook-storage-state.json
+          FACEBOOK_INTERACTIVE_LOGIN_TIMEOUT_MS: '1200000'
+          POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
+          POSTER_HEADLESS: 'false'
+        run: node src/interactive-login.mjs
+
+      - name: Save encrypted Facebook state
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: .facebook-state
+          key: facebook-state-${{ github.run_id }}

@@ -29,6 +29,7 @@ Set these **repository secrets** under `Settings > Secrets and variables > Actio
 | `FACEBOOK_LOGIN_PASSWORD` | Dedicated Facebook posting-account password |
 | `FACEBOOK_POSTING_PROFILE_NAME` | Exact additional-profile display name to use for Group posts |
 | `FACEBOOK_STATE_ENCRYPTION_KEY` | A new random value, at least 32 characters |
+| `FACEBOOK_VNC_PASSWORD` | Random password protecting the temporary remote browser |
 | `FACEBOOK_ACTION_POSTING_ENABLED` | Keep unset or `false` until a dry-run review is complete; set `true` only to permit posting |
 
 The queue and Playwright `storageState` are encrypted with AES-256-GCM before the
@@ -55,10 +56,13 @@ Facebook posts, retries transient failures hourly, and blocks the retained queue
 a Facebook checkpoint, CAPTCHA, device approval, or 2FA request. It cannot and does
 not bypass Facebook account security.
 
-After setting the three Facebook profile secrets, run the workflow manually with
-`verify_group_access=true`. It signs in, switches to the configured additional
-profile, and checks that the Group composer is visible. It does not enqueue, type,
-or publish a post. Only enable the posting secret after that check succeeds.
+For a new or expired Facebook session, manually run `Chiping Facebook Remote
+Login`. Open the configured noVNC tunnel while that workflow is active and
+complete Facebook's checkpoint in the remote browser. The workflow then verifies
+Group access and saves only encrypted browser state. It does not enqueue, type,
+or publish a post. Its random Cloudflare Quick Tunnel URL appears in the workflow
+summary and is offline outside that workflow. Only enable the posting secret after
+that check succeeds.
 
 ## Security model
 

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { signPayload } from '../src/auth.mjs';
 import { loadConfig, normalizeGroupUrl } from '../src/config.mjs';
 import { createServer } from '../src/server.mjs';
-import { readLoginCredentials } from '../src/facebook.mjs';
+import { FacebookSessionRequiredError, loginIfNeeded, readLoginCredentials } from '../src/facebook.mjs';
 import { JobStore } from '../src/store.mjs';
 
 const secret = 'facebook-group-poster-test-secret-with-at-least-32-characters';
@@ -47,6 +47,55 @@ test('automatic login reads credentials only from configured secret files', asyn
       password: 'secret-password',
     });
     assert.equal(await readLoginCredentials({ facebookLoginEmailFile: emailFile, facebookLoginPasswordFile: '' }), null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('automatic login stops on a two-step challenge before navigating away', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
+  try {
+    const emailFile = path.join(directory, 'email');
+    const passwordFile = path.join(directory, 'password');
+    await writeFile(emailFile, 'admin@example.test');
+    await writeFile(passwordFile, 'secret-password');
+
+    let currentUrl = 'https://www.facebook.com/login';
+    let groupNavigations = 0;
+    const page = {
+      url: () => currentUrl,
+      waitForTimeout: async () => {},
+      goto: async () => { groupNavigations += 1; },
+      locator: (selector) => {
+        const isEmail = selector.includes('input[name="email"]');
+        const isPassword = selector.includes('input[name="pass"]');
+        const isSubmit = selector.includes('button[name="login"]');
+        return {
+          first() { return this; },
+          async isVisible() { return isEmail || isPassword; },
+          async fill() {},
+          async click() {
+            if (isSubmit) currentUrl = 'https://www.facebook.com/two_step_verification/authentication/';
+          },
+          async innerText() {
+            return selector === 'body' && currentUrl.includes('two_step_verification')
+              ? 'Complete the security check'
+              : '';
+          },
+        };
+      },
+    };
+
+    await assert.rejects(
+      loginIfNeeded(page, {
+        groupUrl: 'https://www.facebook.com/groups/chiping',
+        facebookLoginEmailFile: emailFile,
+        facebookLoginPasswordFile: passwordFile,
+      }),
+      (error) => error instanceof FacebookSessionRequiredError
+        && error.message === 'Facebook requires a security check'
+    );
+    assert.equal(groupNavigations, 0);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
