@@ -145,6 +145,8 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
   assert.match(workflow, /trycloudflare\\\.com/);
   assert.match(workflow, /Remote browser URL:/);
   assert.match(workflow, /::notice title=Temporary Facebook browser::/);
+  assert.match(workflow, /actions\/upload-artifact@v4/);
+  assert.match(workflow, /facebook-remote-login-\$\{\{ steps\.remote\.outputs\.remote_host \}\}/);
   assert.doesNotMatch(workflow, /FACEBOOK_CLOUDFLARE_TUNNEL_TOKEN/);
   assert.match(workflow, /x11vnc/);
   assert.match(workflow, /node src\/interactive-login\.mjs/);
