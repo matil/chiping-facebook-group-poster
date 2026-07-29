@@ -51,7 +51,8 @@ export async function fillLoginForm(page, config) {
     'form:has(input[name="pass"]) button[type="submit"], '
     + 'form:has(input[name="pass"]) input[type="submit"], '
     + 'button[name="login"], input[name="login"], '
-    + '[role="button"][aria-label="Log In"], [role="button"]:has-text("Log in")'
+    + '[role="button"][aria-label="Log In"], [role="button"]:has-text("Log in"), '
+    + '[role="button"][aria-label="התחברות"], [role="button"]:has-text("התחבר")'
   );
   if (submit) {
     try {
