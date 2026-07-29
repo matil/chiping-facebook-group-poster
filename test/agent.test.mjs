@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { signPayload } from '../src/auth.mjs';
@@ -17,7 +17,9 @@ import {
   normalizeFacebookGroupPostUrl,
   readLoginCredentials,
   sortFacebookGroupFeedNewest,
+  validateChipingLinkPreviewMetadata,
   waitForFacebookComposerToClose,
+  waitForFacebookLinkPreview,
 } from '../src/facebook.mjs';
 import {
   advanceRememberedLogin,
@@ -432,6 +434,104 @@ test('Facebook media fallback does not match a different Chiping item', async ()
     timeoutMs: 5000,
     currentPageOnly: true,
   }), { found: false, postUrl: '' });
+});
+
+test('Chiping link-preview metadata must expose the exact prepared 1200x630 image', async () => {
+  const itemUrl = 'https://www.chiping.co.il/?item=9301';
+  const imageUrl = 'https://cdn.example.test/facebook-link-9301.jpg';
+  const fetchImpl = async (url, options) => {
+    assert.equal(url, itemUrl);
+    assert.match(options.headers['User-Agent'], /facebookexternalhit/);
+    return new Response(`<!doctype html><html><head>
+      <meta property="og:url" content="${itemUrl}">
+      <meta property="og:image" content="${imageUrl}">
+      <meta property="og:image:width" content="1200">
+      <meta property="og:image:height" content="630">
+    </head></html>`);
+  };
+
+  assert.deepEqual(
+    await validateChipingLinkPreviewMetadata(itemUrl, imageUrl, fetchImpl),
+    {
+      canonicalUrl: itemUrl,
+      imageUrl,
+      imageWidth: 1200,
+      imageHeight: 630,
+    }
+  );
+});
+
+test('Chiping link-preview metadata rejects a stale product image', async () => {
+  const itemUrl = 'https://www.chiping.co.il/?item=9301';
+  const fetchImpl = async () => new Response(`<!doctype html><html><head>
+    <meta property="og:url" content="${itemUrl}">
+    <meta property="og:image" content="https://cdn.example.test/old-product.jpg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+  </head></html>`);
+
+  await assert.rejects(
+    validateChipingLinkPreviewMetadata(
+      itemUrl,
+      'https://cdn.example.test/facebook-link-9301.jpg',
+      fetchImpl
+    ),
+    /has not exposed the prepared Facebook image/
+  );
+});
+
+test('Facebook composer requires a rendered Chiping link card before publishing', async () => {
+  const dialog = {
+    async innerText() {
+      return [
+        'https://www.chiping.co.il/?item=9301',
+        'chiping.co.il',
+      ].join('\n');
+    },
+    locator(selector) {
+      if (selector === 'a[href]') {
+        return {
+          async evaluateAll() {
+            return ['https://www.chiping.co.il/?item=9301'];
+          },
+        };
+      }
+      if (selector === 'img, [style*="background-image"]') {
+        return {
+          async evaluateAll() {
+            return [{ width: 540, height: 284, visible: true }];
+          },
+        };
+      }
+      throw new Error(`Unexpected preview selector: ${selector}`);
+    },
+  };
+  const page = {
+    locator(selector) {
+      assert.equal(selector, '[role="dialog"]');
+      return { last() { return dialog; } };
+    },
+    async waitForTimeout() {},
+  };
+
+  const result = await waitForFacebookLinkPreview(
+    page,
+    'https://www.chiping.co.il/?item=9301'
+  );
+  assert.equal(result.hasTargetAnchor, true);
+  assert.equal(result.visualMetrics[0].width, 540);
+});
+
+test('Facebook publisher uses a clickable link preview instead of uploading a photo', async () => {
+  const source = await readFile(new URL('../src/facebook.mjs', import.meta.url), 'utf8');
+  const publisher = source.slice(
+    source.indexOf('export async function postFacebookGroupJob'),
+    source.length
+  );
+  assert.match(publisher, /validateChipingLinkPreviewMetadata/);
+  assert.match(publisher, /waitForFacebookLinkPreview/);
+  assert.doesNotMatch(publisher, /attachFacebookComposerImage/);
+  assert.doesNotMatch(publisher, /downloadImage/);
 });
 
 test('posting profile selection is opt-in and read from configuration', () => {

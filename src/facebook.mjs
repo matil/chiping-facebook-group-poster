@@ -545,6 +545,56 @@ async function downloadImage(imageUrl, fetchImpl = fetch) {
   return { bytes, mimeType, filename: `chiping-deal.${extension}` };
 }
 
+function readHtmlMetaContent(html, key) {
+  const normalizedKey = String(key || '').trim().toLowerCase();
+  const tags = String(html || '').match(/<meta\b[^>]*>/gi) || [];
+  for (const tag of tags) {
+    const attributes = {};
+    for (const match of tag.matchAll(/([:\w-]+)\s*=\s*(["'])(.*?)\2/gi)) {
+      attributes[match[1].toLowerCase()] = match[3]
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/g, "'");
+    }
+    if (String(attributes.property || attributes.name || '').toLowerCase() === normalizedKey) {
+      return String(attributes.content || '').trim();
+    }
+  }
+  return '';
+}
+
+export async function validateChipingLinkPreviewMetadata(
+  itemUrl,
+  expectedImageUrl,
+  fetchImpl = fetch
+) {
+  const response = await fetchImpl(String(itemUrl || ''), {
+    headers: {
+      Accept: 'text/html,application/xhtml+xml',
+      'User-Agent': 'facebookexternalhit/1.1 (+https://www.facebook.com/externalhit_uatext.php)',
+    },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!response.ok) {
+    throw new Error(`Chiping link preview returned HTTP ${response.status}`);
+  }
+  const html = await response.text();
+  const canonicalUrl = readHtmlMetaContent(html, 'og:url');
+  const imageUrl = readHtmlMetaContent(html, 'og:image');
+  const imageWidth = Number(readHtmlMetaContent(html, 'og:image:width'));
+  const imageHeight = Number(readHtmlMetaContent(html, 'og:image:height'));
+  if (new URL(canonicalUrl).href !== new URL(String(itemUrl || '')).href) {
+    throw new Error('Chiping link preview has the wrong destination URL');
+  }
+  if (new URL(imageUrl).href !== new URL(String(expectedImageUrl || '')).href) {
+    throw new Error('Chiping link preview has not exposed the prepared Facebook image');
+  }
+  if (imageWidth !== 1200 || imageHeight !== 630) {
+    throw new Error('Chiping link preview image must be 1200x630');
+  }
+  return { canonicalUrl, imageUrl, imageWidth, imageHeight };
+}
+
 export async function attachFacebookComposerImage(page, image, options = {}) {
   const dialog = page.locator('[role="dialog"]').last();
   const previewImages = dialog.locator('img');
@@ -641,6 +691,47 @@ export async function fillFacebookComposerText(page, textBox, message) {
   if (!retained(actual)) {
     throw new Error('Facebook composer did not retain the post text');
   }
+}
+
+export async function waitForFacebookLinkPreview(page, itemUrl, timeoutMs = 30000) {
+  const target = new URL(String(itemUrl || ''));
+  const host = target.hostname.replace(/^www\./i, '').toLowerCase();
+  const dialog = page.locator('[role="dialog"]').last();
+  const deadline = Date.now() + Math.max(5000, Number(timeoutMs) || 30000);
+  while (Date.now() < deadline) {
+    const [dialogText, hrefs, visualMetrics] = await Promise.all([
+      dialog.innerText().catch(() => ''),
+      dialog.locator('a[href]').evaluateAll((links) => links.map((link) => link.href)).catch(() => []),
+      dialog.locator('img, [style*="background-image"]').evaluateAll((nodes) => (
+        nodes.map((node) => {
+          const rect = node.getBoundingClientRect();
+          return {
+            width: rect.width,
+            height: rect.height,
+            visible: rect.width > 0 && rect.height > 0,
+          };
+        })
+      )).catch(() => []),
+    ]);
+    const hasTargetAnchor = hrefs.some((href) => {
+      try {
+        const candidate = new URL(String(href || ''));
+        return candidate.hostname.replace(/^www\./i, '').toLowerCase() === host
+          && candidate.searchParams.get('item') === target.searchParams.get('item');
+      } catch {
+        return false;
+      }
+    });
+    const hostOccurrences = String(dialogText || '').toLowerCase().split(host).length - 1;
+    const hasLargePreviewVisual = visualMetrics.some((metric) => (
+      metric.visible && metric.width >= 180 && metric.height >= 120
+    ));
+    if (hasLargePreviewVisual && (hasTargetAnchor || hostOccurrences >= 2)) {
+      return { hasTargetAnchor, hostOccurrences, visualMetrics };
+    }
+    await page.waitForTimeout(500);
+  }
+  throw new Error('Facebook did not render the Chiping link preview');
 }
 
 async function waitForEnabledFacebookControl(page, control, timeoutMs = 45000) {
@@ -750,15 +841,12 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     if (!textBox) throw new Error('Facebook group post text box was not found');
     await captureFacebookDebug(page, config, 'composer-open');
 
-    const image = await downloadImage(job.payload.imageUrl, fetchImpl);
-    await attachFacebookComposerImage(page, image, {
-      onFileSelected: async (metadata) => {
-        await captureFacebookDebug(page, config, 'image-selected', metadata);
-      },
-    });
-    await captureFacebookDebug(page, config, 'image-attached');
-    textBox = await firstVisibleLocator(page, TEXTBOX_SELECTORS);
-    if (!textBox) throw new Error('Facebook group post text box was lost after image attachment');
+    const previewMetadata = await validateChipingLinkPreviewMetadata(
+      job.payload.itemUrl,
+      job.payload.imageUrl,
+      fetchImpl
+    );
+    await captureFacebookDebug(page, config, 'link-metadata-verified', previewMetadata);
     try {
       await fillFacebookComposerText(page, textBox, String(job.payload.message));
     } catch (error) {
@@ -766,6 +854,8 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       throw error;
     }
     await captureFacebookDebug(page, config, 'text-entered');
+    const linkPreview = await waitForFacebookLinkPreview(page, job.payload.itemUrl);
+    await captureFacebookDebug(page, config, 'link-preview-ready', linkPreview);
     if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
 
     const postButton = await firstVisibleLocator(page, POST_SELECTORS);
