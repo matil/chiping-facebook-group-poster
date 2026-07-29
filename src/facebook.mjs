@@ -403,6 +403,10 @@ async function findFacebookGroupPostViaMedia(page, itemUrl) {
   const candidates = await page.locator('a[href]:has(img)').evaluateAll((links) => (
     links.map((link) => link.href)
   )).catch(() => []);
+  const diagnosticCandidates = candidates
+    .filter((href) => /(?:\/photo|set=gm\.|\/posts\/)/i.test(String(href || '')))
+    .slice(0, 20);
+  console.log(`[facebook-verifier] media candidates: ${JSON.stringify(diagnosticCandidates)}`);
   const postUrls = [...new Set(
     candidates.map(normalizeFacebookGroupPostUrl).filter(Boolean)
   )].slice(0, 12);
