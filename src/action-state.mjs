@@ -4,6 +4,7 @@ import path from 'node:path';
 
 const FORMAT_VERSION = 1;
 const AAD = Buffer.from('chiping-facebook-action-state:v1');
+const VERIFIED_PROFILE_FILE = 'verified-profile.json';
 
 function keyFromSecret(secret) {
   const value = String(secret || '');
@@ -70,13 +71,31 @@ export async function restoreEncryptedActionState({ encryptedFile, secret, dataD
   if (state.storage_state && storageStateFile) {
     await atomicWrite(storageStateFile, JSON.stringify(state.storage_state));
   }
+  if (typeof state.verified_profile === 'string' && state.verified_profile.trim()) {
+    await atomicWrite(
+      path.join(dataDir, VERIFIED_PROFILE_FILE),
+      JSON.stringify({ name: state.verified_profile.trim() })
+    );
+  }
   return true;
+}
+
+export async function markVerifiedPostingProfile(dataDir, profileName) {
+  const name = String(profileName || '').trim();
+  if (!name) throw new Error('Verified Facebook posting profile is missing');
+  await atomicWrite(path.join(dataDir, VERIFIED_PROFILE_FILE), JSON.stringify({ name }));
 }
 
 export async function saveEncryptedActionState({ encryptedFile, secret, dataDir, storageStateFile }) {
   const queue = await readJson(path.join(dataDir, 'queue.json'));
   if (!queue || typeof queue !== 'object') throw new Error('Facebook queue state was not written');
   const storageState = storageStateFile ? await readJson(storageStateFile) : null;
-  const plain = JSON.stringify({ version: FORMAT_VERSION, queue, storage_state: storageState || null });
+  const verifiedProfile = await readJson(path.join(dataDir, VERIFIED_PROFILE_FILE));
+  const plain = JSON.stringify({
+    version: FORMAT_VERSION,
+    queue,
+    storage_state: storageState || null,
+    verified_profile: String(verifiedProfile?.name || '').trim() || null,
+  });
   await atomicWrite(encryptedFile, encrypt(secret, plain));
 }
