@@ -109,14 +109,25 @@ jobs:
             sleep 1
           done
           test -n "$remote_url"
+          remote_host="${remote_url#https://}"
           browser_url="${remote_url}/vnc.html?autoconnect=true&resize=scale"
           printf 'remote_url=%s\n' "$browser_url" >> "$GITHUB_OUTPUT"
+          printf 'remote_host=%s\n' "$remote_host" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$browser_url" > "$RUNNER_TEMP/facebook-remote-url.txt"
           printf 'Remote browser URL: %s\n' "$browser_url"
           printf '::notice title=Temporary Facebook browser::%s\n' "$browser_url"
           {
             printf '### Temporary Facebook browser\n\n'
             printf 'Open [%s](%s) while this workflow is running.\n' "$browser_url" "$browser_url"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish temporary browser link
+        uses: actions/upload-artifact@v4
+        with:
+          name: facebook-remote-login-${{ steps.remote.outputs.remote_host }}
+          path: ${{ runner.temp }}/facebook-remote-url.txt
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Complete and encrypt remote Facebook login
         env:
