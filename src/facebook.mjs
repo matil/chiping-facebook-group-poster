@@ -60,7 +60,9 @@ export async function findFacebookGroupComposer(page) {
 export async function sortFacebookGroupFeedNewest(page) {
   const alreadyRecent = await firstVisibleLocator(page, [
     '[role="button"]:has-text("Recent posts")',
+    '[role="button"]:has-text("New posts")',
     '[role="button"]:has-text("\u05e4\u05d5\u05e1\u05d8\u05d9\u05dd \u05d0\u05d7\u05e8\u05d5\u05e0\u05d9\u05dd")',
+    '[role="button"]:has-text("\u05e4\u05d5\u05e1\u05d8\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd")',
   ]);
   if (alreadyRecent) return true;
 
@@ -353,7 +355,14 @@ export async function findFacebookGroupPostOnPage(page, {
   for (let attempt = 0; attempt < currentPageAttempts; attempt += 1) {
     const currentPageMatch = await scanFacebookGroupArticles(page, itemUrl);
     if (currentPageMatch.postUrl) return currentPageMatch;
-    if (attempt + 1 < currentPageAttempts) await page.waitForTimeout(2000);
+    if (attempt + 1 < currentPageAttempts) {
+      if (typeof page.evaluate === 'function') {
+        await page.evaluate(() => {
+          window.scrollBy(0, Math.min(700, Math.max(400, window.innerHeight * 0.7)));
+        }).catch(() => {});
+      }
+      await page.waitForTimeout(2000);
+    }
   }
   if (currentPageOnly) return { found: false, postUrl: '' };
 
