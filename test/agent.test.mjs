@@ -482,6 +482,14 @@ test('Chiping link-preview metadata rejects a stale product image', async () => 
 });
 
 test('Facebook composer requires a rendered Chiping link card before publishing', async () => {
+  const visualSelector = [
+    'a[href]',
+    '[role="link"]',
+    'img',
+    '[role="img"]',
+    '[data-visualcompletion="media-vc-image"]',
+    '[style*="background-image"]',
+  ].join(', ');
   const dialog = {
     async innerText() {
       return [
@@ -497,10 +505,16 @@ test('Facebook composer requires a rendered Chiping link card before publishing'
           },
         };
       }
-      if (selector === 'img, [style*="background-image"]') {
+      if (selector === visualSelector) {
         return {
           async evaluateAll() {
-            return [{ width: 540, height: 284, visible: true }];
+            return [{
+              width: 540,
+              height: 284,
+              visible: true,
+              tagName: 'A',
+              role: '',
+            }];
           },
         };
       }
@@ -521,6 +535,52 @@ test('Facebook composer requires a rendered Chiping link card before publishing'
   );
   assert.equal(result.hasTargetAnchor, true);
   assert.equal(result.visualMetrics[0].width, 540);
+});
+
+test('Facebook composer recognizes a CSS-backed link card around a contained product image', async () => {
+  const dialog = {
+    async innerText() {
+      return [
+        'https://www.chiping.co.il/?item=10042',
+        'CHIPING.CO.IL',
+      ].join('\n');
+    },
+    locator(selector) {
+      if (selector === 'a[href]') {
+        return {
+          async evaluateAll() {
+            return ['https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.chiping.co.il'];
+          },
+        };
+      }
+      return {
+        async evaluateAll() {
+          return [{
+            width: 466,
+            height: 277,
+            visible: true,
+            tagName: 'DIV',
+            role: 'img',
+          }];
+        },
+      };
+    },
+  };
+  const page = {
+    locator(selector) {
+      assert.equal(selector, '[role="dialog"]');
+      return { last() { return dialog; } };
+    },
+    async waitForTimeout() {},
+  };
+
+  const result = await waitForFacebookLinkPreview(
+    page,
+    'https://www.chiping.co.il/?item=10042'
+  );
+  assert.equal(result.hasTargetAnchor, false);
+  assert.equal(result.hostOccurrences, 2);
+  assert.equal(result.visualMetrics[0].role, 'img');
 });
 
 test('Facebook publisher uses a clickable link preview instead of uploading a photo', async () => {

@@ -710,18 +710,28 @@ export async function waitForFacebookLinkPreview(page, itemUrl, timeoutMs = 3000
   const target = new URL(String(itemUrl || ''));
   const host = target.hostname.replace(/^www\./i, '').toLowerCase();
   const dialog = page.locator('[role="dialog"]').last();
+  const visualSelector = [
+    'a[href]',
+    '[role="link"]',
+    'img',
+    '[role="img"]',
+    '[data-visualcompletion="media-vc-image"]',
+    '[style*="background-image"]',
+  ].join(', ');
   const deadline = Date.now() + Math.max(5000, Number(timeoutMs) || 30000);
   while (Date.now() < deadline) {
     const [dialogText, hrefs, visualMetrics] = await Promise.all([
       dialog.innerText().catch(() => ''),
       dialog.locator('a[href]').evaluateAll((links) => links.map((link) => link.href)).catch(() => []),
-      dialog.locator('img, [style*="background-image"]').evaluateAll((nodes) => (
+      dialog.locator(visualSelector).evaluateAll((nodes) => (
         nodes.map((node) => {
           const rect = node.getBoundingClientRect();
           return {
             width: rect.width,
             height: rect.height,
             visible: rect.width > 0 && rect.height > 0,
+            tagName: node.tagName,
+            role: node.getAttribute('role') || '',
           };
         })
       )).catch(() => []),
