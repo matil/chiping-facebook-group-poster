@@ -61,7 +61,18 @@ jobs:
           FACEBOOK_STORAGE_STATE_FILE: ${{ runner.temp }}/chiping-facebook-data/facebook-storage-state.json
           POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
           POSTER_HEADLESS: 'true'
+          FACEBOOK_VERIFY_CURRENT_PAGE_ONLY: 'true'
+          FACEBOOK_VERIFY_SCREENSHOT_PATH: ${{ runner.temp }}/facebook-group-feed.png
         run: node src/verify-post.mjs
+
+      - name: Upload authenticated group screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: facebook-group-feed-${{ github.run_id }}
+          path: ${{ runner.temp }}/facebook-group-feed.png
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Report result
         if: always()
