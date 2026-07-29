@@ -270,6 +270,23 @@ function decodedUrl(value) {
   return result;
 }
 
+function referencesExactChipingItem(value, productId) {
+  const decoded = decodedUrl(value);
+  const references = [
+    `www.chiping.co.il/?item=${productId}`,
+    `chiping.co.il/?item=${productId}`,
+  ];
+  return references.some((reference) => {
+    let offset = decoded.indexOf(reference);
+    while (offset >= 0) {
+      const nextCharacter = decoded[offset + reference.length] || '';
+      if (!nextCharacter || /[&#\s"'<>]/.test(nextCharacter)) return true;
+      offset = decoded.indexOf(reference, offset + reference.length);
+    }
+    return false;
+  });
+}
+
 async function scanFacebookGroupArticles(page, itemUrl) {
   const target = new URL(String(itemUrl || ''));
   const productId = target.searchParams.get('item');
@@ -304,11 +321,8 @@ async function scanFacebookGroupArticles(page, itemUrl) {
       article.innerText().catch(() => ''),
       article.locator('a[href]').evaluateAll((links) => links.map((link) => link.href)).catch(() => []),
     ]);
-    const values = [text, ...hrefs].map(decodedUrl);
-    const matchesItem = values.some((value) => (
-      value.includes(`www.chiping.co.il/?item=${productId}`)
-      || value.includes(`chiping.co.il/?item=${productId}`)
-    ));
+    const matchesItem = [text, ...hrefs]
+      .some((value) => referencesExactChipingItem(value, productId));
     if (!matchesItem) continue;
 
     for (const href of hrefs) {
@@ -399,7 +413,9 @@ export async function findFacebookGroupPostOnPage(page, {
   return { found: false, postUrl: '' };
 }
 
-async function findFacebookGroupPostViaMedia(page, itemUrl) {
+export async function findFacebookGroupPostViaMedia(page, itemUrl, {
+  maxCandidates = 12,
+} = {}) {
   const candidates = await page.locator('a[href]:has(img)').evaluateAll((links) => (
     links.map((link) => link.href)
   )).catch(() => []);
@@ -430,7 +446,10 @@ async function findFacebookGroupPostViaMedia(page, itemUrl) {
       // Ignore malformed media hrefs.
     }
   }
-  const mediaUrls = [...mediaByPhotoId.values()].slice(0, 12).map((entry) => entry.url);
+  const candidateLimit = Math.max(1, Math.min(Number(maxCandidates) || 12, 20));
+  const mediaUrls = [...mediaByPhotoId.values()]
+    .slice(0, candidateLimit)
+    .map((entry) => entry.url);
   const context = typeof page.context === 'function' ? page.context() : null;
   if (!context) return { found: false, postUrl: '' };
 
@@ -448,11 +467,7 @@ async function findFacebookGroupPostViaMedia(page, itemUrl) {
       ]);
       const target = new URL(String(itemUrl || ''));
       const productId = target.searchParams.get('item');
-      const values = [bodyText, ...hrefs].map(decodedUrl);
-      if (values.some((value) => (
-        value.includes(`www.chiping.co.il/?item=${productId}`)
-        || value.includes(`chiping.co.il/?item=${productId}`)
-      ))) {
+      if ([bodyText, ...hrefs].some((value) => referencesExactChipingItem(value, productId))) {
         const groupPostUrl = hrefs.map(normalizeFacebookGroupPostUrl).find(Boolean);
         return { found: true, postUrl: groupPostUrl || mediaUrl };
       }
@@ -465,6 +480,25 @@ async function findFacebookGroupPostViaMedia(page, itemUrl) {
   return { found: false, postUrl: '' };
 }
 
+export async function findFacebookGroupPostWithMediaFallback(page, {
+  groupUrl,
+  itemUrl,
+  timeoutMs = 30000,
+  currentPageOnly = false,
+  mediaCandidateLimit = 12,
+} = {}) {
+  const result = await findFacebookGroupPostOnPage(page, {
+    groupUrl,
+    itemUrl,
+    timeoutMs,
+    currentPageOnly,
+  });
+  if (result.postUrl) return result;
+  return findFacebookGroupPostViaMedia(page, itemUrl, {
+    maxCandidates: mediaCandidateLimit,
+  });
+}
+
 export async function findFacebookGroupPost(config, itemUrl, options = {}) {
   const playwright = options.playwright || await import('playwright');
   const session = await createFacebookContext(playwright.chromium, config);
@@ -475,15 +509,16 @@ export async function findFacebookGroupPost(config, itemUrl, options = {}) {
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
     if (options.sortNewest === true) await sortFacebookGroupFeedNewest(page);
-    let result = await findFacebookGroupPostOnPage(page, {
+    const findPost = options.mediaFallback === true
+      ? findFacebookGroupPostWithMediaFallback
+      : findFacebookGroupPostOnPage;
+    const result = await findPost(page, {
       groupUrl: config.groupUrl,
       itemUrl,
       timeoutMs: options.timeoutMs,
       currentPageOnly: options.currentPageOnly === true,
+      mediaCandidateLimit: options.mediaCandidateLimit,
     });
-    if (!result.found && options.mediaFallback === true) {
-      result = await findFacebookGroupPostViaMedia(page, itemUrl);
-    }
     if (options.screenshotPath) {
       await page.screenshot({ path: options.screenshotPath, fullPage: true }).catch(() => {});
     }
@@ -699,7 +734,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
     await sortFacebookGroupFeedNewest(page);
-    const existing = await findFacebookGroupPostOnPage(page, {
+    const existing = await findFacebookGroupPostWithMediaFallback(page, {
       groupUrl: config.groupUrl,
       itemUrl: job.payload.itemUrl,
       timeoutMs: 5000,
@@ -749,7 +784,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
     await captureFacebookDebug(page, config, 'after-submit');
 
-    const published = await findFacebookGroupPostOnPage(page, {
+    const published = await findFacebookGroupPostWithMediaFallback(page, {
       groupUrl: config.groupUrl,
       itemUrl: job.payload.itemUrl,
       timeoutMs: 30000,
