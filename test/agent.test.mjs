@@ -139,6 +139,48 @@ test('Facebook post verification does not confuse a closed composer with a publi
   }), { found: false, postUrl: '' });
 });
 
+test('Facebook post verification tolerates Facebook replacing an in-flight document', async () => {
+  let navigationAttempts = 0;
+  const page = {
+    url: () => 'https://www.facebook.com/groups/chiping/search/?q=9301',
+    async goto() {
+      navigationAttempts += 1;
+      throw new Error('page.goto: net::ERR_ABORTED; maybe frame was detached?');
+    },
+    async waitForLoadState() {},
+    async waitForTimeout() {},
+    locator(selector) {
+      assert.equal(selector, '[role="article"]');
+      return {
+        async count() { return 1; },
+        nth() {
+          return {
+            async isVisible() { return true; },
+            async innerText() { return 'https://www.chiping.co.il/?item=9301'; },
+            locator() {
+              return {
+                async evaluateAll() {
+                  return ['https://www.facebook.com/groups/chiping/posts/333/'];
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostOnPage(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?item=9301',
+    timeoutMs: 5000,
+  }), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/333/',
+  });
+  assert.equal(navigationAttempts, 1);
+});
+
 test('posting profile selection is opt-in and read from configuration', () => {
   assert.equal(loadConfig({ FACEBOOK_POSTING_PROFILE_NAME: 'Chiping Deals' }).facebookPostingProfileName, 'Chiping Deals');
   assert.equal(loadConfig({}).facebookPostingProfileName, '');

@@ -262,6 +262,24 @@ async function scanFacebookGroupArticles(page, itemUrl) {
   return { found: false, postUrl: '' };
 }
 
+async function navigateFacebookForVerification(page, destination) {
+  try {
+    await page.goto(destination, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  } catch (error) {
+    const message = String(error?.message || '');
+    const currentUrl = String(page.url?.() || '');
+    if (!/ERR_ABORTED|frame was detached/i.test(message)
+      || !/^https:\/\/(?:www\.)?facebook\.com\//i.test(currentUrl)) {
+      throw error;
+    }
+    // Facebook sometimes replaces the document while Playwright is awaiting it.
+    if (typeof page.waitForLoadState === 'function') {
+      await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+    }
+    await page.waitForTimeout(1000);
+  }
+}
+
 export async function findFacebookGroupPostOnPage(page, {
   groupUrl,
   itemUrl,
@@ -277,7 +295,7 @@ export async function findFacebookGroupPostOnPage(page, {
     Math.floor(waitBudgetMs / destinations.length / 2000)
   );
   for (const destination of destinations) {
-    await page.goto(destination, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await navigateFacebookForVerification(page, destination);
     for (let attempt = 0; attempt < attemptsPerDestination; attempt += 1) {
       const match = await scanFacebookGroupArticles(page, itemUrl);
       if (match.postUrl) return match;
