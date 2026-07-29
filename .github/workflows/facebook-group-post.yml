@@ -21,6 +21,14 @@ on:
         description: Reset one falsely completed product before processing
         required: false
         type: string
+      confirm_product_id:
+        description: Mark one externally verified product as posted
+        required: false
+        type: string
+      confirm_post_url:
+        description: Verified Facebook permalink for confirm_product_id
+        required: false
+        type: string
 
 permissions:
   actions: write
@@ -94,6 +102,8 @@ jobs:
           FACEBOOK_ACTION_RESUME: ${{ inputs.resume_blocked_queue }}
           FACEBOOK_ACTION_VERIFY_GROUP_ACCESS: ${{ inputs.verify_group_access }}
           FACEBOOK_ACTION_RESET_PRODUCT_ID: ${{ inputs.reset_product_id }}
+          FACEBOOK_ACTION_CONFIRM_PRODUCT_ID: ${{ inputs.confirm_product_id }}
+          FACEBOOK_ACTION_CONFIRM_POST_URL: ${{ inputs.confirm_post_url }}
           FACEBOOK_LOGIN_EMAIL_FILE: ${{ runner.temp }}/chiping-facebook-secrets/email
           FACEBOOK_LOGIN_PASSWORD_FILE: ${{ runner.temp }}/chiping-facebook-secrets/password
           FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}
@@ -129,7 +139,7 @@ jobs:
           printf 'Facebook access check failed: %s\n' "$VERIFICATION_REASON"
 
       - name: Report verified Facebook post
-        if: steps.poster.outputs.outcome == 'posted'
+        if: steps.poster.outputs.outcome == 'posted' || steps.poster.outputs.outcome == 'confirmed'
         env:
           POST_URL: ${{ steps.poster.outputs.post_url }}
         run: |
