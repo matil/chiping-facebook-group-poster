@@ -14,7 +14,7 @@ concurrency:
 jobs:
   login:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -163,7 +163,7 @@ jobs:
           FACEBOOK_LOGIN_PASSWORD_FILE: ${{ runner.temp }}/chiping-facebook-secrets/password
           FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}
           FACEBOOK_STORAGE_STATE_FILE: ${{ runner.temp }}/chiping-facebook-data/facebook-storage-state.json
-          FACEBOOK_INTERACTIVE_LOGIN_TIMEOUT_MS: '1200000'
+          FACEBOOK_INTERACTIVE_LOGIN_TIMEOUT_MS: '1800000'
           POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
           POSTER_HEADLESS: 'false'
         run: node src/interactive-login.mjs
