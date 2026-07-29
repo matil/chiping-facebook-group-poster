@@ -812,6 +812,44 @@ function validatePayload(payload) {
   }
 }
 
+export async function previewFacebookGroupLinkJob(payload, config, options = {}) {
+  validatePayload(payload);
+  const playwright = options.playwright || await import('playwright');
+  const fetchImpl = options.fetchImpl || fetch;
+  const session = await createFacebookContext(playwright.chromium, config);
+  const { context } = session;
+  try {
+    const page = context.pages()[0] || await context.newPage();
+    await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await loginIfNeeded(page, config);
+    await selectPostingProfile(page, config);
+    const previewMetadata = await validateChipingLinkPreviewMetadata(
+      payload.itemUrl,
+      payload.imageUrl,
+      fetchImpl
+    );
+    const composer = await findFacebookGroupComposer(page);
+    if (!composer) throw new Error('Facebook group composer was not found');
+    await composer.click();
+    const textBox = await firstVisibleLocator(page, TEXTBOX_SELECTORS);
+    if (!textBox) throw new Error('Facebook group post text box was not found');
+    await fillFacebookComposerText(page, textBox, String(payload.message));
+    const linkPreview = await waitForFacebookLinkPreview(page, payload.itemUrl);
+    await captureFacebookDebug(page, config, 'link-preview-dry-run', {
+      previewMetadata,
+      linkPreview,
+    });
+    if (options.screenshotPath) {
+      await page.screenshot({ path: options.screenshotPath, fullPage: true });
+    }
+    return { ready: true, previewMetadata, linkPreview };
+  } finally {
+    if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
+    await context.close();
+    if (session.browser) await session.browser.close();
+  }
+}
+
 export async function postFacebookGroupJob(job, config, options = {}) {
   validatePayload(job.payload);
   const playwright = options.playwright || await import('playwright');
