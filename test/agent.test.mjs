@@ -31,7 +31,7 @@ import { JobStore } from '../src/store.mjs';
 
 const secret = 'facebook-group-poster-test-secret-with-at-least-32-characters';
 
-function payload() {
+function payload(overrides = {}) {
   return {
     idempotency_key: 'chiping-facebook:v1:9301',
     productId: '9301',
@@ -41,6 +41,7 @@ function payload() {
     message: '\u05d3\u05d9\u05dc \u05d1\u05d3\u05d9\u05e7\u05d4',
     imageUrl: 'https://cdn.example.test/deal.jpg',
     itemUrl: 'https://www.chiping.co.il/?item=9301',
+    ...overrides,
   };
 }
 
@@ -1083,6 +1084,26 @@ test('job store is durable and idempotent', async () => {
     const reopened = new JobStore(directory);
     await reopened.init();
     assert.deepEqual(reopened.summary(), { pending: 0, retry: 0, processing: 0, blocked: 0, posted: 1 });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('job store prioritizes Amazon Deals posts over curated backlog', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    await store.enqueue(payload());
+    await store.enqueue(payload({
+      posting_policy: 'amazon-deals-all',
+      idempotency_key: 'chiping-facebook:v1:9302',
+      productId: '9302',
+      itemUrl: 'https://www.chiping.co.il/?item=9302',
+    }));
+
+    assert.equal(store.peekNext().product_id, '9302');
+    assert.equal((await store.claimNext()).product_id, '9302');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

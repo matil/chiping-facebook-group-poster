@@ -38,6 +38,7 @@ function isAuthorized(request, rawBody, config) {
 
 function validPayload(payload) {
   const key = String(payload?.idempotency_key || payload?.idempotencyKey || '');
+  const postingPolicy = String(payload?.posting_policy || '').trim().toLowerCase();
   return payload?.site === 'chiping'
     && payload?.channel === 'facebook'
     && payload?.language === 'he'
@@ -48,7 +49,8 @@ function validPayload(payload) {
     && typeof payload?.imageUrl === 'string'
     && payload.imageUrl.startsWith('https://')
     && typeof payload?.itemUrl === 'string'
-    && /^https:\/\/www\.chiping\.co\.il\/\?item=\d+/.test(payload.itemUrl);
+    && /^https:\/\/www\.chiping\.co\.il\/\?item=\d+/.test(payload.itemUrl)
+    && (!postingPolicy || ['curated', 'amazon-deals-all'].includes(postingPolicy));
 }
 
 export async function createServer(options = {}) {
