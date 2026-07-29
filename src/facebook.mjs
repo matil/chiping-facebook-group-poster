@@ -57,6 +57,40 @@ export async function findFacebookGroupComposer(page) {
   return firstVisibleLocator(page, COMPOSER_SELECTORS);
 }
 
+export async function sortFacebookGroupFeedNewest(page) {
+  const alreadyRecent = await firstVisibleLocator(page, [
+    '[role="button"]:has-text("Recent posts")',
+    '[role="button"]:has-text("\u05e4\u05d5\u05e1\u05d8\u05d9\u05dd \u05d0\u05d7\u05e8\u05d5\u05e0\u05d9\u05dd")',
+  ]);
+  if (alreadyRecent) return true;
+
+  const sortControl = await firstVisibleLocator(page, [
+    '[role="button"]:has-text("Most relevant")',
+    '[role="button"]:has-text("New activity")',
+    '[role="button"]:has-text("\u05d4\u05e8\u05dc\u05d5\u05d5\u05e0\u05d8\u05d9\u05d9\u05dd \u05d1\u05d9\u05d5\u05ea\u05e8")',
+    '[role="button"]:has-text("\u05e4\u05e2\u05d9\u05dc\u05d5\u05ea \u05d7\u05d3\u05e9\u05d4")',
+  ]);
+  if (!sortControl) return false;
+  await sortControl.click({ timeout: 10000 });
+  await page.waitForTimeout(500);
+
+  const recentOption = await firstVisibleLocator(page, [
+    '[role="menuitem"]:has-text("Recent posts")',
+    '[role="menuitemradio"]:has-text("Recent posts")',
+    '[role="menuitem"]:has-text("\u05e4\u05d5\u05e1\u05d8\u05d9\u05dd \u05d0\u05d7\u05e8\u05d5\u05e0\u05d9\u05dd")',
+    '[role="menuitemradio"]:has-text("\u05e4\u05d5\u05e1\u05d8\u05d9\u05dd \u05d0\u05d7\u05e8\u05d5\u05e0\u05d9\u05dd")',
+    'text=/^Recent posts$/',
+    'text=/^\u05e4\u05d5\u05e1\u05d8\u05d9\u05dd \u05d0\u05d7\u05e8\u05d5\u05e0\u05d9\u05dd$/',
+  ]);
+  if (!recentOption) {
+    await page.keyboard.press('Escape').catch(() => {});
+    return false;
+  }
+  await recentOption.click({ timeout: 10000 });
+  await page.waitForTimeout(3000);
+  return true;
+}
+
 async function isSecurityChallenge(page) {
   if (SECURITY_URL_RE.test(page.url())) return true;
   const text = await page.locator('body').innerText({ timeout: 1500 }).catch(() => '');
@@ -343,6 +377,7 @@ export async function findFacebookGroupPost(config, itemUrl, options = {}) {
     await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
+    if (options.sortNewest === true) await sortFacebookGroupFeedNewest(page);
     const result = await findFacebookGroupPostOnPage(page, {
       groupUrl: config.groupUrl,
       itemUrl,
@@ -430,6 +465,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
+    await sortFacebookGroupFeedNewest(page);
     const existing = await findFacebookGroupPostOnPage(page, {
       groupUrl: config.groupUrl,
       itemUrl: job.payload.itemUrl,
