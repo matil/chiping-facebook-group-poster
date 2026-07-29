@@ -278,6 +278,24 @@ async function scanFacebookGroupArticles(page, itemUrl) {
   for (let index = 0; index < count; index += 1) {
     const article = articles.nth(index);
     if (!await article.isVisible().catch(() => false)) continue;
+    const expanders = article.locator([
+      '[role="button"]:has-text("See more")',
+      '[role="button"]:has-text("\u05d4\u05e6\u05d2 \u05e2\u05d5\u05d3")',
+      '[role="button"]:has-text("\u05e8\u05d0\u05d4 \u05e2\u05d5\u05d3")',
+    ].join(', '));
+    let expanderCount = 0;
+    try {
+      expanderCount = Math.min(await expanders.count(), 3);
+    } catch {
+      expanderCount = 0;
+    }
+    for (let expanderIndex = 0; expanderIndex < expanderCount; expanderIndex += 1) {
+      const expander = expanders.nth(expanderIndex);
+      if (!await expander.isVisible().catch(() => false)) continue;
+      await expander.click({ timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(200);
+      break;
+    }
     const [text, hrefs] = await Promise.all([
       article.innerText().catch(() => ''),
       article.locator('a[href]').evaluateAll((links) => links.map((link) => link.href)).catch(() => []),

@@ -62,6 +62,7 @@ test('Facebook post verification accepts only concrete group post permalinks', (
 
 test('Facebook post verification requires the exact item link and returns its permalink', async () => {
   const navigations = [];
+  const hidden = { async isVisible() { return false; } };
   const articles = [
     {
       visible: true,
@@ -89,8 +90,13 @@ test('Facebook post verification requires the exact item link and returns its pe
           return {
             async isVisible() { return article.visible; },
             async innerText() { return article.text; },
-            locator(anchorSelector) {
-              assert.equal(anchorSelector, 'a[href]');
+            locator(selector) {
+              if (selector !== 'a[href]') {
+                return {
+                  async count() { return 0; },
+                  nth() { return hidden; },
+                };
+              }
               return {
                 async evaluateAll() { return article.hrefs; },
               };
@@ -111,6 +117,61 @@ test('Facebook post verification requires the exact item link and returns its pe
     postUrl: 'https://www.facebook.com/groups/chiping/posts/222/',
   });
   assert.equal(navigations.length, 0);
+});
+
+test('Facebook post verification expands collapsed text before matching the item URL', async () => {
+  let expanded = false;
+  const hidden = { async isVisible() { return false; } };
+  const page = {
+    async waitForTimeout() {},
+    locator(selector) {
+      assert.equal(selector, '[role="article"]');
+      return {
+        async count() { return 1; },
+        nth() {
+          return {
+            async isVisible() { return true; },
+            async innerText() {
+              return expanded
+                ? 'Deal https://www.chiping.co.il/?item=9301'
+                : 'Deal... See more';
+            },
+            locator(innerSelector) {
+              if (innerSelector === 'a[href]') {
+                return {
+                  async evaluateAll() {
+                    return expanded
+                      ? ['https://www.facebook.com/groups/chiping/posts/555/']
+                      : [];
+                  },
+                };
+              }
+              return {
+                async count() { return 1; },
+                nth() {
+                  return {
+                    async isVisible() { return true; },
+                    async click() { expanded = true; },
+                  };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostOnPage(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?item=9301',
+    timeoutMs: 5000,
+    currentPageOnly: true,
+  }), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/555/',
+  });
+  assert.equal(expanded, true);
 });
 
 test('Facebook post verification does not confuse a closed composer with a published post', async () => {
