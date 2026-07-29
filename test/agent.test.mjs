@@ -7,6 +7,7 @@ import { signPayload } from '../src/auth.mjs';
 import { loadConfig, normalizeGroupUrl } from '../src/config.mjs';
 import { createServer } from '../src/server.mjs';
 import {
+  configuredPostingProfileIsActive,
   FacebookSessionRequiredError,
   findFacebookGroupComposer,
   loginIfNeeded,
@@ -276,6 +277,53 @@ test('interactive login accepts the current group composer without an aria-label
     await loginCompleted(page, 'https://www.facebook.com/groups/chiping'),
     true
   );
+});
+
+test('active Facebook posting profile is verified in the current composer', async () => {
+  let composerClicked = false;
+  let escapePressed = false;
+  const hidden = { async isVisible() { return false; } };
+  const page = {
+    async evaluate() {},
+    async waitForTimeout() {},
+    keyboard: {
+      async press(key) { escapePressed = key === 'Escape'; },
+    },
+    locator(selector) {
+      if (selector === '[role="button"]:has-text("Write something")') {
+        return {
+          first() {
+            return {
+              async isVisible() { return true; },
+              async click() { composerClicked = true; },
+            };
+          },
+        };
+      }
+      if (selector === '[role="dialog"]') {
+        return {
+          first() {
+            return {
+              getByText(name, options) {
+                assert.equal(name, 'Chi Ping');
+                assert.equal(options.exact, true);
+                return {
+                  last() {
+                    return { async isVisible() { return true; } };
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+      return { first() { return hidden; } };
+    },
+  };
+
+  assert.equal(await configuredPostingProfileIsActive(page, 'Chi Ping'), true);
+  assert.equal(composerClicked, true);
+  assert.equal(escapePressed, true);
 });
 
 test('job store is durable and idempotent', async () => {
