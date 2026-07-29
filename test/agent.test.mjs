@@ -106,7 +106,7 @@ test('Facebook post verification requires the exact item link and returns its pe
     found: true,
     postUrl: 'https://www.facebook.com/groups/chiping/posts/222/',
   });
-  assert.equal(navigations.length, 1);
+  assert.equal(navigations.length, 0);
 });
 
 test('Facebook post verification does not confuse a closed composer with a published post', async () => {
@@ -141,6 +141,7 @@ test('Facebook post verification does not confuse a closed composer with a publi
 
 test('Facebook post verification tolerates Facebook replacing an in-flight document', async () => {
   let navigationAttempts = 0;
+  let scans = 0;
   const page = {
     url: () => 'https://www.facebook.com/groups/chiping/search/?q=9301',
     async goto() {
@@ -154,13 +155,18 @@ test('Facebook post verification tolerates Facebook replacing an in-flight docum
       return {
         async count() { return 1; },
         nth() {
+          scans += 1;
           return {
             async isVisible() { return true; },
-            async innerText() { return 'https://www.chiping.co.il/?item=9301'; },
+            async innerText() {
+              return scans === 1 ? 'No matching item yet' : 'https://www.chiping.co.il/?item=9301';
+            },
             locator() {
               return {
                 async evaluateAll() {
-                  return ['https://www.facebook.com/groups/chiping/posts/333/'];
+                  return scans === 1
+                    ? []
+                    : ['https://www.facebook.com/groups/chiping/posts/333/'];
                 },
               };
             },
@@ -179,6 +185,61 @@ test('Facebook post verification tolerates Facebook replacing an in-flight docum
     postUrl: 'https://www.facebook.com/groups/chiping/posts/333/',
   });
   assert.equal(navigationAttempts, 1);
+});
+
+test('Facebook post verification follows the replacement tab Facebook opens', async () => {
+  let originalScans = 0;
+  const articleLocator = (matching) => ({
+    async count() { return matching ? 1 : 0; },
+    nth() {
+      return {
+        async isVisible() { return true; },
+        async innerText() { return 'https://www.chiping.co.il/?item=9301'; },
+        locator() {
+          return {
+            async evaluateAll() {
+              return ['https://www.facebook.com/groups/chiping/posts/444/'];
+            },
+          };
+        },
+      };
+    },
+  });
+  const replacement = {
+    isClosed: () => false,
+    async waitForTimeout() {},
+    locator(selector) {
+      assert.equal(selector, '[role="article"]');
+      return articleLocator(true);
+    },
+  };
+  const context = {
+    pages: () => [replacement],
+  };
+  const original = {
+    url: () => 'https://www.facebook.com/groups/chiping',
+    context: () => context,
+    isClosed: () => true,
+    async goto() {
+      throw new Error('page.goto: Target page, context or browser has been closed');
+    },
+    async waitForTimeout() {},
+    locator(selector) {
+      assert.equal(selector, '[role="article"]');
+      originalScans += 1;
+      return articleLocator(false);
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostOnPage(original, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?item=9301',
+    timeoutMs: 5000,
+  }), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/444/',
+  });
+  assert.equal(originalScans, 1);
 });
 
 test('posting profile selection is opt-in and read from configuration', () => {

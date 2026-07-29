@@ -264,19 +264,35 @@ async function scanFacebookGroupArticles(page, itemUrl) {
 
 async function navigateFacebookForVerification(page, destination) {
   try {
-    await page.goto(destination, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.goto(destination, { waitUntil: 'commit', timeout: 45000 });
+    await page.waitForTimeout(1000);
+    return page;
   } catch (error) {
     const message = String(error?.message || '');
     const currentUrl = String(page.url?.() || '');
-    if (!/ERR_ABORTED|frame was detached/i.test(message)
+    if (!/ERR_ABORTED|frame was detached|Target page, context or browser has been closed/i.test(message)
       || !/^https:\/\/(?:www\.)?facebook\.com\//i.test(currentUrl)) {
       throw error;
     }
-    // Facebook sometimes replaces the document while Playwright is awaiting it.
-    if (typeof page.waitForLoadState === 'function') {
-      await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+
+    const context = typeof page.context === 'function' ? page.context() : null;
+    const replacement = context?.pages()
+      .filter((candidate) => !candidate.isClosed())
+      .at(-1);
+    if (replacement && replacement !== page) {
+      await replacement.waitForTimeout(1000);
+      return replacement;
     }
-    await page.waitForTimeout(1000);
+    if (!page.isClosed?.()) {
+      await page.waitForTimeout(1000);
+      return page;
+    }
+    if (!context) throw error;
+
+    const freshPage = await context.newPage();
+    await freshPage.goto(destination, { waitUntil: 'commit', timeout: 45000 });
+    await freshPage.waitForTimeout(1000);
+    return freshPage;
   }
 }
 
@@ -286,16 +302,21 @@ export async function findFacebookGroupPostOnPage(page, {
   timeoutMs = 30000,
 } = {}) {
   const waitBudgetMs = Math.max(5000, Math.min(Number(timeoutMs) || 30000, 60000));
+  const target = new URL(String(itemUrl || ''));
+  const productId = target.searchParams.get('item');
   const destinations = [
-    `${groupUrl}/search/?q=${encodeURIComponent(itemUrl)}`,
+    `${groupUrl}/search/?q=${encodeURIComponent(productId || itemUrl)}`,
     `${groupUrl}?sorting_setting=CHRONOLOGICAL`,
   ];
   const attemptsPerDestination = Math.max(
     2,
     Math.floor(waitBudgetMs / destinations.length / 2000)
   );
+  const currentPageMatch = await scanFacebookGroupArticles(page, itemUrl);
+  if (currentPageMatch.postUrl) return currentPageMatch;
+
   for (const destination of destinations) {
-    await navigateFacebookForVerification(page, destination);
+    page = await navigateFacebookForVerification(page, destination);
     for (let attempt = 0; attempt < attemptsPerDestination; attempt += 1) {
       const match = await scanFacebookGroupArticles(page, itemUrl);
       if (match.postUrl) return match;
