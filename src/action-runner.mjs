@@ -6,15 +6,17 @@ import { loadConfig } from './config.mjs';
 import { restoreEncryptedActionState, saveEncryptedActionState } from './action-state.mjs';
 import { JobStore } from './store.mjs';
 
-const POST_INTERVAL_MS = 20 * 60 * 60 * 1000;
+const CURATED_POST_INTERVAL_MS = 20 * 60 * 60 * 1000;
+const AMAZON_DEALS_POST_INTERVAL_MS = 5 * 60 * 1000;
+const AMAZON_DEALS_POSTING_POLICY = 'amazon-deals-all';
 
 function enabled(value) {
   return /^(?:1|true|yes|on)$/i.test(String(value || '').trim());
 }
 
-function nextRetryAt(attempts) {
+function nextRetryAt(attempts, nowMs = Date.now()) {
   const delay = Math.min(6 * 60 * 60 * 1000, 30 * 60 * 1000 * (2 ** Math.max(0, attempts)));
-  return new Date(Date.now() + delay).toISOString();
+  return new Date(nowMs + delay).toISOString();
 }
 
 function payloadFromEvent(event) {
@@ -33,6 +35,7 @@ async function readEventPayload(file) {
 
 function validPayload(payload) {
   const key = String(payload?.idempotency_key || payload?.idempotencyKey || '');
+  const postingPolicy = String(payload?.posting_policy || '').trim().toLowerCase();
   return payload?.site === 'chiping'
     && payload?.channel === 'facebook'
     && payload?.language === 'he'
@@ -43,7 +46,8 @@ function validPayload(payload) {
     && typeof payload?.imageUrl === 'string'
     && payload.imageUrl.startsWith('https://')
     && typeof payload?.itemUrl === 'string'
-    && /^https:\/\/www\.chiping\.co\.il\/\?item=\d+/.test(payload.itemUrl);
+    && /^https:\/\/www\.chiping\.co\.il\/\?item=\d+/.test(payload.itemUrl)
+    && (!postingPolicy || ['curated', AMAZON_DEALS_POSTING_POLICY].includes(postingPolicy));
 }
 
 function validFacebookPostUrl(value) {
@@ -59,11 +63,37 @@ function validFacebookPostUrl(value) {
   }
 }
 
-function lastPostedAt(store) {
+function postingPolicy(job) {
+  return String(job?.payload?.posting_policy || '').trim().toLowerCase() || 'curated';
+}
+
+export function postIntervalMsForJob(job = null) {
+  return postingPolicy(job) === AMAZON_DEALS_POSTING_POLICY
+    ? AMAZON_DEALS_POST_INTERVAL_MS
+    : CURATED_POST_INTERVAL_MS;
+}
+
+function lastPostedAt(store, predicate = null) {
   return Math.max(...Object.values(store.state.jobs)
-    .filter((job) => job?.status === 'posted')
+    .filter((job) => job?.status === 'posted' && (!predicate || predicate(job)))
     .map((job) => Date.parse(job.posted_at || ''))
     .filter(Number.isFinite), 0);
+}
+
+function nextEligiblePostAt(store, nextJob) {
+  const latestPostAt = lastPostedAt(store);
+  if (!nextJob) return latestPostAt + CURATED_POST_INTERVAL_MS;
+  if (postingPolicy(nextJob) === AMAZON_DEALS_POSTING_POLICY) {
+    return latestPostAt + AMAZON_DEALS_POST_INTERVAL_MS;
+  }
+  const latestCuratedPostAt = lastPostedAt(
+    store,
+    (job) => postingPolicy(job) !== AMAZON_DEALS_POSTING_POLICY
+  );
+  return Math.max(
+    latestPostAt + AMAZON_DEALS_POST_INTERVAL_MS,
+    latestCuratedPostAt + CURATED_POST_INTERVAL_MS
+  );
 }
 
 function prunePosted(store) {
@@ -140,7 +170,9 @@ export async function runGitHubAction(env = process.env, options = {}) {
     }
   }
 
+  const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
   const summary = store.summary();
+  const nextJob = store.peekNext(nowMs);
   if (confirmed) {
     // A separately verified permalink is final; never submit the product again.
   } else if (enabled(env.FACEBOOK_ACTION_VERIFY_GROUP_ACCESS)) {
@@ -159,10 +191,10 @@ export async function runGitHubAction(env = process.env, options = {}) {
     outcome = 'blocked';
   } else if (!enabled(env.FACEBOOK_ACTION_POSTING_ENABLED)) {
     if (summary.pending || summary.retry) outcome = 'dry_run';
-  } else if (Date.now() - lastPostedAt(store) < POST_INTERVAL_MS) {
+  } else if (nowMs < nextEligiblePostAt(store, nextJob)) {
     outcome = 'cooldown';
   } else {
-    const job = await store.claimNext();
+    const job = await store.claimNext(nowMs);
     if (job) {
       changed = true;
       try {
@@ -183,7 +215,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
           outcome = 'blocked';
           alert = true;
         } else {
-          await store.markRetry(job.id, message, nextRetryAt(job.attempts));
+          await store.markRetry(job.id, message, nextRetryAt(job.attempts, nowMs));
           outcome = 'retry';
         }
       }

@@ -11,6 +11,12 @@ function dueAt(job) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function postingPriority(job) {
+  return String(job?.payload?.posting_policy || '').trim().toLowerCase() === 'amazon-deals-all'
+    ? 0
+    : 1;
+}
+
 export class JobStore {
   constructor(dataDir) {
     this.dataDir = dataDir;
@@ -77,11 +83,22 @@ export class JobStore {
     return { job: structuredClone(job), accepted: true, deduplicated: false };
   }
 
-  async claimNext(nowMs = Date.now()) {
+  peekNext(nowMs = Date.now()) {
     const job = this.state.order
       .map((id) => this.state.jobs[id])
-      .find((entry) => entry && ['pending', 'retry'].includes(entry.status) && dueAt(entry) <= nowMs);
-    if (!job) return null;
+      .filter((entry) => entry && ['pending', 'retry'].includes(entry.status) && dueAt(entry) <= nowMs)
+      .sort((left, right) => {
+        const priorityDelta = postingPriority(left) - postingPriority(right);
+        if (priorityDelta) return priorityDelta;
+        return Date.parse(left.created_at || '') - Date.parse(right.created_at || '');
+      })[0];
+    return job ? structuredClone(job) : null;
+  }
+
+  async claimNext(nowMs = Date.now()) {
+    const next = this.peekNext(nowMs);
+    if (!next) return null;
+    const job = this.state.jobs[next.id];
     job.status = 'processing';
     job.updated_at = new Date(nowMs).toISOString();
     await this.persist();

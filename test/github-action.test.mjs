@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { runGitHubAction } from '../src/action-runner.mjs';
+import { postIntervalMsForJob, runGitHubAction } from '../src/action-runner.mjs';
 import { previewFacebookLink } from '../src/preview-link.mjs';
 import {
   markVerifiedPostingProfile,
@@ -14,7 +14,7 @@ import { FacebookSessionRequiredError } from '../src/facebook.mjs';
 
 const stateKey = 'github-action-state-key-that-is-longer-than-thirty-two-characters';
 
-function payload() {
+function payload(overrides = {}) {
   return {
     idempotency_key: 'chiping-facebook:v1:9301',
     productId: '9301',
@@ -24,6 +24,7 @@ function payload() {
     message: '\u05d3\u05d9\u05dc \u05d1\u05d3\u05d9\u05e7\u05d4',
     imageUrl: 'https://cdn.example.test/deal.jpg',
     itemUrl: 'https://www.chiping.co.il/?item=9301',
+    ...overrides,
   };
 }
 
@@ -168,6 +169,54 @@ test('GitHub Action posts one queued item and respects the daily interval', asyn
       },
     });
     assert.equal(second.outcome, 'cooldown');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('Amazon Deals Facebook jobs use a five-minute interval instead of curated daily cadence', async () => {
+  assert.equal(postIntervalMsForJob({ payload: payload() }), 20 * 60 * 60 * 1000);
+  assert.equal(postIntervalMsForJob({
+    payload: payload({ posting_policy: 'amazon-deals-all' }),
+  }), 5 * 60 * 1000);
+
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const sourcePayload = payload({ posting_policy: 'amazon-deals-all' });
+    const firstEnv = await actionEnvironment(directory, {
+      client_payload: { payload: sourcePayload },
+    });
+    firstEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    const sent = [];
+    const first = await runGitHubAction(firstEnv, {
+      postJob: async (job) => {
+        sent.push(job.payload.productId);
+        return { postUrl: 'https://www.facebook.com/groups/chiping/posts/111/' };
+      },
+    });
+    assert.equal(first.outcome, 'posted');
+
+    const secondEnv = await actionEnvironment(directory, {
+      client_payload: {
+        payload: payload({
+          posting_policy: 'amazon-deals-all',
+          idempotency_key: 'chiping-facebook:v1:9302',
+          productId: '9302',
+          itemUrl: 'https://www.chiping.co.il/?item=9302',
+        }),
+      },
+    });
+    secondEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    const second = await runGitHubAction(secondEnv, {
+      nowMs: Date.now() + 6 * 60 * 1000,
+      postJob: async (job) => {
+        sent.push(job.payload.productId);
+        return { postUrl: 'https://www.facebook.com/groups/chiping/posts/222/' };
+      },
+    });
+
+    assert.equal(second.outcome, 'posted');
+    assert.deepEqual(sent, ['9301', '9302']);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
