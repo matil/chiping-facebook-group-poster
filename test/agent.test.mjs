@@ -112,6 +112,7 @@ test('interactive login ignores a hidden submit control', async () => {
 
     let clickedVisibleSubmit = false;
     let pressedEnter = false;
+    let submitSelector = '';
     const input = (kind) => ({
       first() { return this; },
       async isVisible() { return true; },
@@ -124,6 +125,7 @@ test('interactive login ignores a hidden submit control', async () => {
       locator(selector) {
         if (selector.startsWith('input[name="email"]')) return input('email');
         if (selector.startsWith('input[name="pass"]')) return input('password');
+        submitSelector = selector;
         return {
           async count() { return 2; },
           nth(index) {
@@ -142,6 +144,7 @@ test('interactive login ignores a hidden submit control', async () => {
     }), true);
     assert.equal(clickedVisibleSubmit, true);
     assert.equal(pressedEnter, false);
+    assert.match(submitSelector, /aria-label="התחברות"/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
