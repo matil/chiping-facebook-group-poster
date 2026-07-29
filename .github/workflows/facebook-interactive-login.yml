@@ -111,38 +111,22 @@ jobs:
             sleep 1
           done
           test -n "$remote_url"
-          proxy_dir="$RUNNER_TEMP/facebook-remote-proxy"
-          mkdir -p "$proxy_dir"
-          cp src/remote-login-proxy.mjs "$proxy_dir/_worker.js"
-          REMOTE_UPSTREAM="$remote_url" DEPLOYMENT_MARKER="$GITHUB_RUN_ID" \
-            PROXY_FILE="$proxy_dir/_worker.js" \
-            node --input-type=module <<'NODE'
-          import { readFile, writeFile } from 'node:fs/promises';
-          const upstream = new URL(process.env.REMOTE_UPSTREAM);
-          if (upstream.protocol !== 'https:' || !upstream.hostname.endsWith('.trycloudflare.com')) {
-            throw new Error('Unexpected remote-login upstream');
-          }
-          const file = process.env.PROXY_FILE;
-          const source = await readFile(file, 'utf8');
-          if (!source.includes('__REMOTE_UPSTREAM__') || !source.includes('__DEPLOYMENT_MARKER__')) {
-            throw new Error('Proxy placeholder is missing');
-          }
-          await writeFile(
-            file,
-            source
-              .replace('__REMOTE_UPSTREAM__', upstream.origin)
-              .replace('__DEPLOYMENT_MARKER__', process.env.DEPLOYMENT_MARKER)
-          );
-          NODE
-          printf '<!doctype html><title>Chiping remote login</title>\n' > "$proxy_dir/index.html"
-          npx --yes wrangler@4.75.0 pages deploy "$proxy_dir" \
+          remote_host="${remote_url#https://}"
+          [[ "$remote_host" =~ ^[a-z0-9-]+\.trycloudflare\.com$ ]]
+          pages_dir="$RUNNER_TEMP/facebook-remote-pages"
+          mkdir -p "$pages_dir"
+          cp -R /usr/share/novnc/. "$pages_dir/"
+          printf '%s\n' "$GITHUB_RUN_ID" > "$pages_dir/ready-${GITHUB_RUN_ID}.txt"
+          printf '/*\n  Cache-Control: no-store\n  X-Robots-Tag: noindex, nofollow, noarchive\n  Referrer-Policy: no-referrer\n' \
+            > "$pages_dir/_headers"
+          npx --yes wrangler@4.75.0 pages deploy "$pages_dir" \
             --project-name chiping-fb-login \
             --branch main \
             --commit-hash "$GITHUB_SHA" \
             --commit-message "Temporary Facebook login ${GITHUB_RUN_ID}" \
             --commit-dirty=true
-          browser_url="https://fb-login.chiping.co.il/vnc.html?autoconnect=true&resize=scale"
-          ready_url="https://fb-login.chiping.co.il/__ready"
+          browser_url="https://fb-login.chiping.co.il/vnc.html?autoconnect=true&resize=scale&host=${remote_host}&port=443&encrypt=true&path=websockify"
+          ready_url="https://fb-login.chiping.co.il/ready-${GITHUB_RUN_ID}.txt"
           for attempt in {1..90}; do
             test "$(curl --fail --silent "$ready_url" || true)" = "$GITHUB_RUN_ID" && break
             sleep 1
