@@ -111,9 +111,11 @@ test('Facebook post verification requires the exact item link and returns its pe
 });
 
 test('Facebook post verification does not confuse a closed composer with a published post', async () => {
+  let scrolls = 0;
   const page = {
     async goto() {},
     async waitForTimeout() {},
+    async evaluate() { scrolls += 1; },
     locator(selector) {
       assert.equal(selector, '[role="article"]');
       return {
@@ -138,6 +140,7 @@ test('Facebook post verification does not confuse a closed composer with a publi
     itemUrl: 'https://www.chiping.co.il/?item=9301',
     timeoutMs: 5000,
   }), { found: false, postUrl: '' });
+  assert.ok(scrolls > 0);
 });
 
 test('Facebook post verification tolerates Facebook replacing an in-flight document', async () => {
