@@ -203,4 +203,13 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
     'utf8'
   );
   assert.match(postingWorkflow, /FACEBOOK_TRUST_VERIFIED_PROFILE: 'true'/);
+
+  const verificationWorkflow = await readFile(
+    path.join(process.cwd(), '.github', 'workflows', 'facebook-verify-post.yml'),
+    'utf8'
+  );
+  assert.match(verificationWorkflow, /node src\/verify-post\.mjs/);
+  assert.match(verificationWorkflow, /FACEBOOK_VERIFY_PRODUCT_ID:/);
+  assert.match(verificationWorkflow, /Post URL:/);
+  assert.doesNotMatch(verificationWorkflow, /FACEBOOK_ACTION_POSTING_ENABLED/);
 });

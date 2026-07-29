@@ -1,0 +1,77 @@
+name: Verify Chiping Facebook Group Post
+
+on:
+  workflow_dispatch:
+    inputs:
+      product_id:
+        description: Chiping product ID to find in the Facebook group
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: chiping-facebook-group-poster
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Restore Chromium
+        id: browser-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Restore encrypted Facebook state
+        uses: actions/cache/restore@v4
+        with:
+          path: .facebook-state
+          key: facebook-state-${{ github.run_id }}
+          restore-keys: |
+            facebook-state-
+
+      - name: Find exact Facebook post
+        id: verify
+        env:
+          FACEBOOK_VERIFY_PRODUCT_ID: ${{ inputs.product_id }}
+          FACEBOOK_ACTION_STATE_FILE: ${{ github.workspace }}/.facebook-state/facebook-agent.enc
+          FACEBOOK_STATE_ENCRYPTION_KEY: ${{ secrets.FACEBOOK_STATE_ENCRYPTION_KEY }}
+          FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}
+          FACEBOOK_TRUST_VERIFIED_PROFILE: 'true'
+          FACEBOOK_STORAGE_STATE_FILE: ${{ runner.temp }}/chiping-facebook-data/facebook-storage-state.json
+          POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
+          POSTER_HEADLESS: 'true'
+        run: node src/verify-post.mjs
+
+      - name: Report result
+        if: always()
+        env:
+          FOUND: ${{ steps.verify.outputs.found }}
+          POST_URL: ${{ steps.verify.outputs.post_url }}
+          PRODUCT_ID: ${{ inputs.product_id }}
+        run: |
+          printf 'Product %s found: %s\n' "$PRODUCT_ID" "${FOUND:-false}"
+          if [ -n "${POST_URL:-}" ]; then
+            printf 'Post URL: %s\n' "$POST_URL"
+          fi
+          test "${FOUND:-false}" = 'true'

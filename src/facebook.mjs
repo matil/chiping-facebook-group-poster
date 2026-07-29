@@ -156,7 +156,7 @@ export async function loginIfNeeded(page, config) {
   if (await hasLoginForm(page)) throw new FacebookSessionRequiredError('Facebook did not accept the configured login credentials');
 }
 
-async function selectPostingProfile(page, config) {
+export async function selectPostingProfile(page, config) {
   const profileName = String(config.facebookPostingProfileName || '').trim();
   if (!profileName) return;
   if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
@@ -203,6 +203,109 @@ async function selectPostingProfile(page, config) {
     throw new FacebookSessionRequiredError('Facebook rejected the configured posting profile');
   }
   await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+}
+
+export function normalizeFacebookGroupPostUrl(value) {
+  try {
+    const url = new URL(String(value || ''), 'https://www.facebook.com');
+    if (!['facebook.com', 'www.facebook.com'].includes(url.hostname)) return '';
+    if (!/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/\d+\/?$/i.test(url.pathname)) return '';
+    return `https://www.facebook.com${url.pathname.replace(/\/?$/, '/')}`;
+  } catch {
+    return '';
+  }
+}
+
+function decodedUrl(value) {
+  let result = String(value || '');
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const decoded = decodeURIComponent(result);
+      if (decoded === result) break;
+      result = decoded;
+    } catch {
+      break;
+    }
+  }
+  return result;
+}
+
+async function scanFacebookGroupArticles(page, itemUrl) {
+  const target = new URL(String(itemUrl || ''));
+  const productId = target.searchParams.get('item');
+  if (target.hostname !== 'www.chiping.co.il' || !/^\d+$/.test(String(productId || ''))) {
+    throw new Error('Facebook post verification requires a Chiping item URL');
+  }
+
+  const articles = page.locator('[role="article"]');
+  const count = Math.min(await articles.count(), 50);
+  for (let index = 0; index < count; index += 1) {
+    const article = articles.nth(index);
+    if (!await article.isVisible().catch(() => false)) continue;
+    const [text, hrefs] = await Promise.all([
+      article.innerText().catch(() => ''),
+      article.locator('a[href]').evaluateAll((links) => links.map((link) => link.href)).catch(() => []),
+    ]);
+    const values = [text, ...hrefs].map(decodedUrl);
+    const matchesItem = values.some((value) => (
+      value.includes(`www.chiping.co.il/?item=${productId}`)
+      || value.includes(`chiping.co.il/?item=${productId}`)
+    ));
+    if (!matchesItem) continue;
+
+    for (const href of hrefs) {
+      const postUrl = normalizeFacebookGroupPostUrl(href);
+      if (postUrl) return { found: true, postUrl };
+    }
+    return { found: true, postUrl: '' };
+  }
+  return { found: false, postUrl: '' };
+}
+
+export async function findFacebookGroupPostOnPage(page, {
+  groupUrl,
+  itemUrl,
+  timeoutMs = 30000,
+} = {}) {
+  const waitBudgetMs = Math.max(5000, Math.min(Number(timeoutMs) || 30000, 60000));
+  const destinations = [
+    `${groupUrl}/search/?q=${encodeURIComponent(itemUrl)}`,
+    `${groupUrl}?sorting_setting=CHRONOLOGICAL`,
+  ];
+  const attemptsPerDestination = Math.max(
+    2,
+    Math.floor(waitBudgetMs / destinations.length / 2000)
+  );
+  for (const destination of destinations) {
+    await page.goto(destination, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    for (let attempt = 0; attempt < attemptsPerDestination; attempt += 1) {
+      const match = await scanFacebookGroupArticles(page, itemUrl);
+      if (match.postUrl) return match;
+      if (attempt + 1 < attemptsPerDestination) await page.waitForTimeout(2000);
+    }
+  }
+  return { found: false, postUrl: '' };
+}
+
+export async function findFacebookGroupPost(config, itemUrl, options = {}) {
+  const playwright = options.playwright || await import('playwright');
+  const session = await createFacebookContext(playwright.chromium, config);
+  const { context } = session;
+  try {
+    const page = context.pages()[0] || await context.newPage();
+    await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await loginIfNeeded(page, config);
+    await selectPostingProfile(page, config);
+    return findFacebookGroupPostOnPage(page, {
+      groupUrl: config.groupUrl,
+      itemUrl,
+      timeoutMs: options.timeoutMs,
+    });
+  } finally {
+    if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
+    await context.close();
+    if (session.browser) await session.browser.close();
+  }
 }
 
 async function downloadImage(imageUrl, fetchImpl = fetch) {
@@ -299,7 +402,14 @@ export async function postFacebookGroupJob(job, config, options = {}) {
 
     const composerStillVisible = await textBox.isVisible().catch(() => false);
     if (composerStillVisible) throw new Error('Facebook did not confirm the group post');
-    return { postUrl: config.groupUrl };
+    const published = await findFacebookGroupPostOnPage(page, {
+      groupUrl: config.groupUrl,
+      itemUrl: job.payload.itemUrl,
+    });
+    if (!published.found || !published.postUrl) {
+      throw new Error('Facebook did not expose the published group post');
+    }
+    return { postUrl: published.postUrl };
   } finally {
     if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
     await context.close();
