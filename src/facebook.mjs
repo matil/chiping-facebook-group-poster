@@ -407,19 +407,55 @@ async function findFacebookGroupPostViaMedia(page, itemUrl) {
     .filter((href) => /(?:\/photo|set=gm\.|\/posts\/)/i.test(String(href || '')))
     .slice(0, 20);
   console.log(`[facebook-verifier] media candidates: ${JSON.stringify(diagnosticCandidates)}`);
-  const postUrls = [...new Set(
-    candidates.map(normalizeFacebookGroupPostUrl).filter(Boolean)
-  )].slice(0, 12);
+  const mediaByPhotoId = new Map();
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate);
+      const photoId = url.searchParams.get('fbid');
+      if (!['facebook.com', 'www.facebook.com'].includes(url.hostname)
+        || !/^\/photo(?:\.php)?\/?$/i.test(url.pathname)
+        || !/^\d+$/.test(String(photoId || ''))) {
+        continue;
+      }
+      const existing = mediaByPhotoId.get(photoId);
+      const groupScoped = /^g\.\d+$/i.test(String(url.searchParams.get('set') || ''));
+      if (!existing || groupScoped) {
+        mediaByPhotoId.set(photoId, {
+          url: `https://www.facebook.com/photo/?fbid=${photoId}`
+            + (url.searchParams.get('set') ? `&set=${encodeURIComponent(url.searchParams.get('set'))}` : ''),
+          groupScoped,
+        });
+      }
+    } catch {
+      // Ignore malformed media hrefs.
+    }
+  }
+  const mediaUrls = [...mediaByPhotoId.values()].slice(0, 12).map((entry) => entry.url);
   const context = typeof page.context === 'function' ? page.context() : null;
   if (!context) return { found: false, postUrl: '' };
 
-  for (const postUrl of postUrls) {
+  for (const mediaUrl of mediaUrls) {
     const candidatePage = await context.newPage();
     try {
-      await candidatePage.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await candidatePage.goto(mediaUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
       await candidatePage.waitForTimeout(2000);
       const match = await scanFacebookGroupArticles(candidatePage, itemUrl);
-      if (match.found) return { found: true, postUrl };
+      if (match.found) return { found: true, postUrl: match.postUrl || mediaUrl };
+
+      const [bodyText, hrefs] = await Promise.all([
+        candidatePage.locator('body').innerText().catch(() => ''),
+        candidatePage.locator('a[href]').evaluateAll((links) => links.map((link) => link.href)).catch(() => []),
+      ]);
+      const target = new URL(String(itemUrl || ''));
+      const productId = target.searchParams.get('item');
+      const values = [bodyText, ...hrefs].map(decodedUrl);
+      if (values.some((value) => (
+        value.includes(`www.chiping.co.il/?item=${productId}`)
+        || value.includes(`chiping.co.il/?item=${productId}`)
+      ))) {
+        const groupPostUrl = hrefs.map(normalizeFacebookGroupPostUrl).find(Boolean);
+        return { found: true, postUrl: groupPostUrl || mediaUrl };
+      }
     } catch {
       // Ignore unrelated or unavailable media entries.
     } finally {
