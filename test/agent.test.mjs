@@ -55,6 +55,10 @@ test('Facebook post verification accepts only concrete group post permalinks', (
     normalizeFacebookGroupPostUrl('/groups/123456789/permalink/987654321/'),
     'https://www.facebook.com/groups/123456789/permalink/987654321/'
   );
+  assert.equal(
+    normalizeFacebookGroupPostUrl('https://www.facebook.com/photo/?fbid=111&set=gm.222333444'),
+    'https://www.facebook.com/groups/chiping/posts/222333444/'
+  );
   assert.equal(normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/chiping'), '');
   assert.equal(normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/other/posts/123456789/'), '');
   assert.equal(normalizeFacebookGroupPostUrl('https://example.test/groups/chiping/posts/123456789/'), '');

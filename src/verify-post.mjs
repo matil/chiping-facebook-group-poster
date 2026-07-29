@@ -36,6 +36,7 @@ export async function verifyFacebookPost(env = process.env, options = {}) {
       ...options,
       currentPageOnly: /^(?:1|true|yes|on)$/i.test(String(env.FACEBOOK_VERIFY_CURRENT_PAGE_ONLY || '')),
       sortNewest: /^(?:1|true|yes|on)$/i.test(String(env.FACEBOOK_VERIFY_SORT_NEWEST || '')),
+      mediaFallback: /^(?:1|true|yes|on)$/i.test(String(env.FACEBOOK_VERIFY_MEDIA_FALLBACK || '')),
       screenshotPath: String(env.FACEBOOK_VERIFY_SCREENSHOT_PATH || '').trim() || undefined,
     }
   );

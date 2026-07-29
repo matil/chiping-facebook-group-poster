@@ -245,6 +245,10 @@ export function normalizeFacebookGroupPostUrl(value) {
   try {
     const url = new URL(String(value || ''), 'https://www.facebook.com');
     if (!['facebook.com', 'www.facebook.com'].includes(url.hostname)) return '';
+    const mediaPostId = String(url.searchParams.get('set') || '').match(/^gm\.(\d+)$/i)?.[1];
+    if (/^\/photo(?:\.php)?\/?$/i.test(url.pathname) && mediaPostId) {
+      return `https://www.facebook.com/groups/chiping/posts/${mediaPostId}/`;
+    }
     if (!/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/\d+\/?$/i.test(url.pathname)) return '';
     return `https://www.facebook.com${url.pathname.replace(/\/?$/, '/')}`;
   } catch {
@@ -395,6 +399,32 @@ export async function findFacebookGroupPostOnPage(page, {
   return { found: false, postUrl: '' };
 }
 
+async function findFacebookGroupPostViaMedia(page, itemUrl) {
+  const candidates = await page.locator('a[href]:has(img)').evaluateAll((links) => (
+    links.map((link) => link.href)
+  )).catch(() => []);
+  const postUrls = [...new Set(
+    candidates.map(normalizeFacebookGroupPostUrl).filter(Boolean)
+  )].slice(0, 12);
+  const context = typeof page.context === 'function' ? page.context() : null;
+  if (!context) return { found: false, postUrl: '' };
+
+  for (const postUrl of postUrls) {
+    const candidatePage = await context.newPage();
+    try {
+      await candidatePage.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await candidatePage.waitForTimeout(2000);
+      const match = await scanFacebookGroupArticles(candidatePage, itemUrl);
+      if (match.found) return { found: true, postUrl };
+    } catch {
+      // Ignore unrelated or unavailable media entries.
+    } finally {
+      await candidatePage.close().catch(() => {});
+    }
+  }
+  return { found: false, postUrl: '' };
+}
+
 export async function findFacebookGroupPost(config, itemUrl, options = {}) {
   const playwright = options.playwright || await import('playwright');
   const session = await createFacebookContext(playwright.chromium, config);
@@ -405,12 +435,15 @@ export async function findFacebookGroupPost(config, itemUrl, options = {}) {
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
     if (options.sortNewest === true) await sortFacebookGroupFeedNewest(page);
-    const result = await findFacebookGroupPostOnPage(page, {
+    let result = await findFacebookGroupPostOnPage(page, {
       groupUrl: config.groupUrl,
       itemUrl,
       timeoutMs: options.timeoutMs,
       currentPageOnly: options.currentPageOnly === true,
     });
+    if (!result.found && options.mediaFallback === true) {
+      result = await findFacebookGroupPostViaMedia(page, itemUrl);
+    }
     if (options.screenshotPath) {
       await page.screenshot({ path: options.screenshotPath, fullPage: true }).catch(() => {});
     }
