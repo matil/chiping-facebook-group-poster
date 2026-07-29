@@ -1,4 +1,4 @@
-import { access, mkdir, readFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const LOGIN_URL_RE = /\/login/i;
@@ -419,6 +419,23 @@ async function downloadImage(imageUrl, fetchImpl = fetch) {
   return { bytes, mimeType, filename: `chiping-deal.${extension}` };
 }
 
+async function captureFacebookDebug(page, config, name, metadata = null) {
+  const directory = String(config.facebookDebugDir || '').trim();
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  await page.screenshot({
+    path: path.join(directory, `${name}.png`),
+    fullPage: true,
+  }).catch(() => {});
+  if (metadata) {
+    await writeFile(
+      path.join(directory, `${name}.json`),
+      JSON.stringify(metadata, null, 2),
+      'utf8'
+    ).catch(() => {});
+  }
+}
+
 export async function verifyFacebookGroupAccess(config, options = {}) {
   const playwright = options.playwright || await import('playwright');
   const session = await createFacebookContext(playwright.chromium, config);
@@ -497,12 +514,19 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     await fileInput.setInputFiles({ name: image.filename, mimeType: image.mimeType, buffer: image.bytes });
     await page.waitForTimeout(1500);
     if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
+    await captureFacebookDebug(page, config, 'before-submit');
 
     const postButton = await firstVisibleLocator(page, POST_SELECTORS);
     if (!postButton) throw new Error('Facebook group publish button was not found');
+    await captureFacebookDebug(page, config, 'publish-control', {
+      text: await postButton.innerText().catch(() => ''),
+      ariaLabel: await postButton.getAttribute('aria-label').catch(() => ''),
+      enabled: await postButton.isEnabled().catch(() => false),
+    });
     await postButton.click();
     await page.waitForTimeout(4000);
     if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
+    await captureFacebookDebug(page, config, 'after-submit');
 
     const composerStillVisible = await textBox.isVisible().catch(() => false);
     if (composerStillVisible) throw new Error('Facebook did not confirm the group post');
@@ -512,6 +536,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       timeoutMs: 30000,
       currentPageOnly: true,
     });
+    await captureFacebookDebug(page, config, 'after-verification');
     if (!published.found || !published.postUrl) {
       throw new Error('Facebook did not expose the published group post');
     }

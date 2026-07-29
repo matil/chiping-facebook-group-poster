@@ -232,6 +232,8 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
   assert.match(postingWorkflow, /FACEBOOK_TRUST_VERIFIED_PROFILE: 'true'/);
   assert.match(postingWorkflow, /FACEBOOK_ACTION_RESET_PRODUCT_ID:/);
   assert.match(postingWorkflow, /Post URL:/);
+  assert.match(postingWorkflow, /FACEBOOK_DEBUG_DIR:/);
+  assert.match(postingWorkflow, /facebook-post-debug-\$\{\{ github\.run_id \}\}/);
 
   const verificationWorkflow = await readFile(
     path.join(process.cwd(), '.github', 'workflows', 'facebook-verify-post.yml'),

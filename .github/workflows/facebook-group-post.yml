@@ -102,7 +102,17 @@ jobs:
           POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
           POSTER_HEADLESS: 'true'
           POSTER_MAX_ATTEMPTS: '5'
+          FACEBOOK_DEBUG_DIR: ${{ runner.temp }}/facebook-post-debug
         run: node src/action-runner.mjs
+
+      - name: Upload Facebook post diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: facebook-post-debug-${{ github.run_id }}
+          path: ${{ runner.temp }}/facebook-post-debug
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Save encrypted Facebook state
         if: always() && steps.poster.outputs.state_changed == 'true'
