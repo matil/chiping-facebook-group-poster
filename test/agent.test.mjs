@@ -546,6 +546,41 @@ test('Facebook composer image is attached through its own file chooser', async (
   assert.equal(selectedFile.mimeType, 'image/jpeg');
 });
 
+test('Facebook CSS-backed image preview is accepted through its visible controls', async () => {
+  let previewReady = false;
+  const hidden = { async isVisible() { return false; } };
+  const visible = { async isVisible() { return true; }, async click() {} };
+  const dialog = {
+    locator(selector) {
+      assert.equal(selector, 'img');
+      return { async count() { return 0; } };
+    },
+  };
+  const page = {
+    locator(selector) {
+      if (selector === '[role="dialog"]') return { last() { return dialog; } };
+      if (selector.includes('Photo/video')) return { first() { return visible; } };
+      if (selector.includes('has-text("Edit")')) {
+        return { first() { return previewReady ? visible : hidden; } };
+      }
+      return { first() { return hidden; } };
+    },
+    async waitForEvent() {
+      return {
+        async setFiles() { previewReady = true; },
+      };
+    },
+    async waitForTimeout() {},
+  };
+
+  await attachFacebookComposerImage(page, {
+    filename: 'deal.jpg',
+    mimeType: 'image/jpeg',
+    bytes: Buffer.from('image'),
+  });
+  assert.equal(previewReady, true);
+});
+
 test('Facebook composer text falls back to keyboard input and verifies retention', async () => {
   let value = '';
   const textBox = {

@@ -466,6 +466,14 @@ export async function attachFacebookComposerImage(page, image, options = {}) {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
     if (await previewImages.count() > initialPreviewCount) return;
+    const previewControl = await firstVisibleLocator(page, [
+      '[role="dialog"] [role="button"]:has-text("Edit")',
+      '[role="dialog"] [role="button"][aria-label*="Remove photo"]',
+      '[role="dialog"] [role="button"][aria-label*="Remove image"]',
+      '[role="dialog"] [role="button"]:has-text("\u05e2\u05e8\u05d9\u05db\u05d4")',
+      '[role="dialog"] [role="button"][aria-label*="\u05d4\u05e1\u05e8\u05ea \u05ea\u05de\u05d5\u05e0\u05d4"]',
+    ]);
+    if (previewControl) return;
     await page.waitForTimeout(500);
   }
   throw new Error('Facebook did not attach the image preview');
