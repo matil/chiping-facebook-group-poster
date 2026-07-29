@@ -10,6 +10,7 @@ import {
   attachFacebookComposerImage,
   FacebookSessionRequiredError,
   fillFacebookComposerText,
+  findFacebookComposerTextBox,
   findFacebookGroupPostOnPage,
   findFacebookGroupPostWithMediaFallback,
   findFacebookGroupComposer,
@@ -749,6 +750,29 @@ test('current Facebook text-only composer is recognized after scrolling to the t
   assert.equal(await findFacebookGroupComposer(page), composer);
   assert.equal(scrolledToTop, true);
   assert.equal(matchedSelector, '[role="button"]:has-text("Write something")');
+});
+
+test('Facebook composer text lookup ignores visible comment editors', async () => {
+  const postEditor = {
+    async isVisible() { return true; },
+    async getAttribute() { return 'Create a public post'; },
+  };
+  const commentEditor = {
+    async isVisible() { return true; },
+    async getAttribute() { return 'Comment as Chi'; },
+  };
+  const page = {
+    locator(selector) {
+      assert.equal(selector, '[role="dialog"] [contenteditable="true"][role="textbox"]');
+      return {
+        async count() { return 2; },
+        nth(index) { return [postEditor, commentEditor][index]; },
+      };
+    },
+    async waitForTimeout() {},
+  };
+
+  assert.equal(await findFacebookComposerTextBox(page), postEditor);
 });
 
 test('Facebook group feed is switched from most relevant to recent posts', async () => {
