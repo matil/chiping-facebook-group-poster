@@ -481,18 +481,38 @@ export async function attachFacebookComposerImage(page, image, options = {}) {
 
 export async function fillFacebookComposerText(page, textBox, message) {
   const expected = String(message || '').trim();
+  const normalizedExpected = expected
+    .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const retained = (value) => {
+    const normalizedActual = String(value || '')
+      .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return normalizedActual.includes(
+      normalizedExpected.slice(0, Math.min(12, normalizedExpected.length))
+    );
+  };
   await textBox.click({ timeout: 10000 });
-  await textBox.fill(expected);
+  await textBox.fill(expected).catch(() => {});
   await page.waitForTimeout(300);
   let actual = String(await textBox.innerText().catch(() => '')).trim();
-  if (!actual.includes(expected.slice(0, Math.min(20, expected.length)))) {
+  if (!retained(actual)) {
     await textBox.click({ timeout: 10000 });
     await page.keyboard.press('Control+A').catch(() => {});
     await page.keyboard.insertText(expected);
     await page.waitForTimeout(300);
     actual = String(await textBox.innerText().catch(() => '')).trim();
   }
-  if (!actual.includes(expected.slice(0, Math.min(20, expected.length)))) {
+  if (!retained(actual) && typeof textBox.pressSequentially === 'function') {
+    await textBox.click({ timeout: 10000 });
+    await page.keyboard.press('Control+A').catch(() => {});
+    await textBox.pressSequentially(expected, { delay: 1 });
+    await page.waitForTimeout(300);
+    actual = String(await textBox.innerText().catch(() => '')).trim();
+  }
+  if (!retained(actual)) {
     throw new Error('Facebook composer did not retain the post text');
   }
 }
@@ -591,7 +611,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     if (!composer) throw new Error('Facebook group composer was not found');
     await composer.click();
 
-    const textBox = await firstVisibleLocator(page, TEXTBOX_SELECTORS);
+    let textBox = await firstVisibleLocator(page, TEXTBOX_SELECTORS);
     if (!textBox) throw new Error('Facebook group post text box was not found');
     await captureFacebookDebug(page, config, 'composer-open');
 
@@ -602,7 +622,15 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       },
     });
     await captureFacebookDebug(page, config, 'image-attached');
-    await fillFacebookComposerText(page, textBox, String(job.payload.message));
+    textBox = await firstVisibleLocator(page, TEXTBOX_SELECTORS);
+    if (!textBox) throw new Error('Facebook group post text box was lost after image attachment');
+    try {
+      await fillFacebookComposerText(page, textBox, String(job.payload.message));
+    } catch (error) {
+      await captureFacebookDebug(page, config, 'text-entry-failed');
+      throw error;
+    }
+    await captureFacebookDebug(page, config, 'text-entered');
     if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
 
     const postButton = await firstVisibleLocator(page, POST_SELECTORS);
