@@ -150,6 +150,7 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
   assert.match(workflow, /wrangler@4\.75\.0 pages deploy/);
   assert.match(workflow, /--project-name chiping-fb-login/);
   assert.match(workflow, /cp -R \/usr\/share\/novnc/);
+  assert.match(workflow, /fb-login\.chiping\.co\.il\/vnc\?/);
   assert.match(workflow, /host=\$\{remote_host\}/);
   assert.doesNotMatch(workflow, /remote-login-proxy/);
   assert.match(workflow, /facebook-remote-login-\$\{\{ github\.run_id \}\}/);

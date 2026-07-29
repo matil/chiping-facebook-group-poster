@@ -125,13 +125,17 @@ jobs:
             --commit-hash "$GITHUB_SHA" \
             --commit-message "Temporary Facebook login ${GITHUB_RUN_ID}" \
             --commit-dirty=true
-          browser_url="https://fb-login.chiping.co.il/vnc.html?autoconnect=true&resize=scale&host=${remote_host}&port=443&encrypt=true&path=websockify"
+          browser_url="https://fb-login.chiping.co.il/vnc?autoconnect=true&resize=scale&host=${remote_host}&port=443&encrypt=true&path=websockify"
           ready_url="https://fb-login.chiping.co.il/ready-${GITHUB_RUN_ID}.txt"
           for attempt in {1..90}; do
             test "$(curl --fail --silent "$ready_url" || true)" = "$GITHUB_RUN_ID" && break
             sleep 1
           done
           test "$(curl --fail --silent "$ready_url")" = "$GITHUB_RUN_ID"
+          for attempt in {1..30}; do
+            curl --fail --silent "$browser_url" >/dev/null && break
+            sleep 1
+          done
           curl --fail --silent --show-error "$browser_url" >/dev/null
           printf 'remote_url=%s\n' "$browser_url" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$browser_url" > "$RUNNER_TEMP/facebook-remote-url.txt"
