@@ -199,6 +199,29 @@ test('GitHub Action can reset and repost one falsely completed product', async (
   }
 });
 
+test('GitHub Action confirms a recovered permalink without launching the poster', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, { client_payload: { payload: payload() } });
+    await runGitHubAction(env);
+
+    const confirmEnv = await actionEnvironment(directory);
+    confirmEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    confirmEnv.FACEBOOK_ACTION_CONFIRM_PRODUCT_ID = '9301';
+    confirmEnv.FACEBOOK_ACTION_CONFIRM_POST_URL = 'https://www.facebook.com/photo/?fbid=111&set=g.222';
+    const result = await runGitHubAction(confirmEnv, {
+      postJob: async () => {
+        throw new Error('confirmation must never launch Facebook posting');
+      },
+    });
+    assert.equal(result.outcome, 'confirmed');
+    assert.equal(result.postUrl, confirmEnv.FACEBOOK_ACTION_CONFIRM_POST_URL);
+    assert.equal(result.summary.posted, 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('remote login workflow uses protected VNC and encrypts the resulting session', async () => {
   const workflow = await readFile(
     path.join(process.cwd(), '.github', 'workflows', 'facebook-interactive-login.yml'),
@@ -231,6 +254,7 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
   );
   assert.match(postingWorkflow, /FACEBOOK_TRUST_VERIFIED_PROFILE: 'true'/);
   assert.match(postingWorkflow, /FACEBOOK_ACTION_RESET_PRODUCT_ID:/);
+  assert.match(postingWorkflow, /FACEBOOK_ACTION_CONFIRM_PRODUCT_ID:/);
   assert.match(postingWorkflow, /Post URL:/);
   assert.match(postingWorkflow, /FACEBOOK_DEBUG_DIR:/);
   assert.match(postingWorkflow, /facebook-post-debug-\$\{\{ github\.run_id \}\}/);

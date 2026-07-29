@@ -46,6 +46,19 @@ function validPayload(payload) {
     && /^https:\/\/www\.chiping\.co\.il\/\?item=\d+/.test(payload.itemUrl);
 }
 
+function validFacebookPostUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    if (!['facebook.com', 'www.facebook.com'].includes(url.hostname)) return false;
+    if (/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/\d+\/?$/i.test(url.pathname)) return true;
+    return /^\/photo(?:\.php)?\/?$/i.test(url.pathname)
+      && /^\d+$/.test(String(url.searchParams.get('fbid') || ''))
+      && /^g\.\d+$/i.test(String(url.searchParams.get('set') || ''));
+  } catch {
+    return false;
+  }
+}
+
 function lastPostedAt(store) {
   return Math.max(...Object.values(store.state.jobs)
     .filter((job) => job?.status === 'posted')
@@ -91,6 +104,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
   let outcome = 'idle';
   let verificationReason = '';
   let postUrl = '';
+  let confirmed = false;
   const payload = await readEventPayload(String(env.FACEBOOK_EVENT_PATH || '').trim());
   if (payload && validPayload(payload)) {
     const queued = await store.enqueue(payload);
@@ -111,9 +125,25 @@ export async function runGitHubAction(env = process.env, options = {}) {
     changed ||= reset > 0;
     if (reset) outcome = 'reset';
   }
+  const confirmProductId = String(env.FACEBOOK_ACTION_CONFIRM_PRODUCT_ID || '').trim();
+  const confirmPostUrl = String(env.FACEBOOK_ACTION_CONFIRM_POST_URL || '').trim();
+  if (confirmProductId || confirmPostUrl) {
+    if (!/^\d+$/.test(confirmProductId) || !validFacebookPostUrl(confirmPostUrl)) {
+      throw new Error('Facebook post confirmation is invalid');
+    }
+    const confirmedCount = await store.confirmProductPosted(confirmProductId, confirmPostUrl);
+    changed ||= confirmedCount > 0;
+    confirmed = confirmedCount > 0;
+    if (confirmed) {
+      postUrl = confirmPostUrl;
+      outcome = 'confirmed';
+    }
+  }
 
   const summary = store.summary();
-  if (enabled(env.FACEBOOK_ACTION_VERIFY_GROUP_ACCESS)) {
+  if (confirmed) {
+    // A separately verified permalink is final; never submit the product again.
+  } else if (enabled(env.FACEBOOK_ACTION_VERIFY_GROUP_ACCESS)) {
     changed = true;
     try {
       await (options.verifyGroupAccess || verifyFacebookGroupAccess)(config, options);

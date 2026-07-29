@@ -758,6 +758,24 @@ test('job store can reset one falsely completed product without touching others'
   }
 });
 
+test('job store can confirm a recovered Facebook permalink without reposting', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    const queued = await store.enqueue(payload());
+    await store.markRetry(queued.job.id, 'verification_failed', new Date().toISOString());
+    const postUrl = 'https://www.facebook.com/photo/?fbid=111&set=g.222';
+
+    assert.equal(await store.confirmProductPosted('9301', postUrl), 1);
+    assert.equal(store.state.jobs[queued.job.id].status, 'posted');
+    assert.equal(store.state.jobs[queued.job.id].post_url, postUrl);
+    assert.equal(store.state.jobs[queued.job.id].last_error, null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('poster accepts only signed Chiping jobs and acknowledges duplicates', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
   const config = {

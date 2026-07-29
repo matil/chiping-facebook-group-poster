@@ -158,6 +158,26 @@ export class JobStore {
     return reset;
   }
 
+  async confirmProductPosted(productId, postUrl) {
+    const normalizedProductId = String(productId || '').trim();
+    const normalizedPostUrl = String(postUrl || '').trim();
+    if (!/^\d+$/.test(normalizedProductId) || !normalizedPostUrl) return 0;
+    const now = new Date().toISOString();
+    let confirmed = 0;
+    for (const job of Object.values(this.state.jobs)) {
+      if (String(job?.product_id || '') !== normalizedProductId) continue;
+      job.status = 'posted';
+      job.post_url = normalizedPostUrl;
+      job.last_error = null;
+      job.next_attempt_at = null;
+      job.posted_at = now;
+      job.updated_at = now;
+      confirmed += 1;
+    }
+    if (confirmed) await this.persist();
+    return confirmed;
+  }
+
   summary() {
     const result = { pending: 0, retry: 0, processing: 0, blocked: 0, posted: 0 };
     for (const job of Object.values(this.state.jobs)) {
