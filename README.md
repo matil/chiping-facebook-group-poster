@@ -30,6 +30,8 @@ Set these **repository secrets** under `Settings > Secrets and variables > Actio
 | `FACEBOOK_POSTING_PROFILE_NAME` | Exact additional-profile display name to use for Group posts |
 | `FACEBOOK_STATE_ENCRYPTION_KEY` | A new random value, at least 32 characters |
 | `FACEBOOK_VNC_PASSWORD` | Random password protecting the temporary remote browser |
+| `CLOUDFLARE_API_TOKEN` | Deploys the isolated remote-login Pages proxy |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account containing the Pages proxy |
 | `FACEBOOK_ACTION_POSTING_ENABLED` | Keep unset or `false` until a dry-run review is complete; set `true` only to permit posting |
 
 The queue and Playwright `storageState` are encrypted with AES-256-GCM before the
@@ -60,9 +62,9 @@ For a new or expired Facebook session, manually run `Chiping Facebook Remote
 Login`. Open the configured noVNC tunnel while that workflow is active and
 complete Facebook's checkpoint in the remote browser. The workflow then verifies
 Group access and saves only encrypted browser state. It does not enqueue, type,
-or publish a post. Its random Cloudflare Quick Tunnel URL appears in the workflow
-summary and is offline outside that workflow. Only enable the posting secret after
-that check succeeds.
+or publish a post. A dedicated Chiping-owned Pages Worker proxies the random Quick Tunnel at
+`https://fb-login.chiping.co.il`; the backend tunnel is offline outside that
+workflow. Only enable the posting secret after that check succeeds.
 
 ## Security model
 
