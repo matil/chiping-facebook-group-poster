@@ -300,6 +300,7 @@ export async function findFacebookGroupPostOnPage(page, {
   groupUrl,
   itemUrl,
   timeoutMs = 30000,
+  currentPageOnly = false,
 } = {}) {
   const waitBudgetMs = Math.max(5000, Math.min(Number(timeoutMs) || 30000, 60000));
   const target = new URL(String(itemUrl || ''));
@@ -312,8 +313,15 @@ export async function findFacebookGroupPostOnPage(page, {
     2,
     Math.floor(waitBudgetMs / destinations.length / 2000)
   );
-  const currentPageMatch = await scanFacebookGroupArticles(page, itemUrl);
-  if (currentPageMatch.postUrl) return currentPageMatch;
+  const currentPageAttempts = currentPageOnly
+    ? Math.max(2, Math.floor(waitBudgetMs / 2000))
+    : 2;
+  for (let attempt = 0; attempt < currentPageAttempts; attempt += 1) {
+    const currentPageMatch = await scanFacebookGroupArticles(page, itemUrl);
+    if (currentPageMatch.postUrl) return currentPageMatch;
+    if (attempt + 1 < currentPageAttempts) await page.waitForTimeout(2000);
+  }
+  if (currentPageOnly) return { found: false, postUrl: '' };
 
   for (const destination of destinations) {
     page = await navigateFacebookForVerification(page, destination);
@@ -417,6 +425,13 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
+    const existing = await findFacebookGroupPostOnPage(page, {
+      groupUrl: config.groupUrl,
+      itemUrl: job.payload.itemUrl,
+      timeoutMs: 5000,
+      currentPageOnly: true,
+    });
+    if (existing.postUrl) return { postUrl: existing.postUrl };
 
     const composer = await findFacebookGroupComposer(page);
     if (!composer) throw new Error('Facebook group composer was not found');
@@ -444,6 +459,8 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     const published = await findFacebookGroupPostOnPage(page, {
       groupUrl: config.groupUrl,
       itemUrl: job.payload.itemUrl,
+      timeoutMs: 30000,
+      currentPageOnly: true,
     });
     if (!published.found || !published.postUrl) {
       throw new Error('Facebook did not expose the published group post');

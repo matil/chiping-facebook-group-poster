@@ -90,6 +90,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
   let alert = false;
   let outcome = 'idle';
   let verificationReason = '';
+  let postUrl = '';
   const payload = await readEventPayload(String(env.FACEBOOK_EVENT_PATH || '').trim());
   if (payload && validPayload(payload)) {
     const queued = await store.enqueue(payload);
@@ -102,6 +103,13 @@ export async function runGitHubAction(env = process.env, options = {}) {
     const resumed = await store.resumeBlocked();
     changed ||= resumed > 0;
     if (resumed) outcome = 'resumed';
+  }
+  const resetProductId = String(env.FACEBOOK_ACTION_RESET_PRODUCT_ID || '').trim();
+  if (resetProductId) {
+    if (!/^\d+$/.test(resetProductId)) throw new Error('FACEBOOK_ACTION_RESET_PRODUCT_ID must be numeric');
+    const reset = await store.resetProduct(resetProductId);
+    changed ||= reset > 0;
+    if (reset) outcome = 'reset';
   }
 
   const summary = store.summary();
@@ -129,7 +137,9 @@ export async function runGitHubAction(env = process.env, options = {}) {
       changed = true;
       try {
         const result = await (options.postJob || postFacebookGroupJob)(job, config, options);
-        await store.markPosted(job.id, result?.postUrl || config.groupUrl);
+        postUrl = String(result?.postUrl || '');
+        if (!postUrl) throw new Error('Facebook post did not return a permalink');
+        await store.markPosted(job.id, postUrl);
         prunePosted(store);
         await store.persist();
         outcome = 'posted';
@@ -158,8 +168,14 @@ export async function runGitHubAction(env = process.env, options = {}) {
       storageStateFile: config.storageStateFile,
     });
   }
-  await writeOutputs({ outcome, state_changed: changed, alert, verification_reason: verificationReason });
-  return { outcome, stateChanged: changed, alert, verificationReason, summary: store.summary() };
+  await writeOutputs({
+    outcome,
+    state_changed: changed,
+    alert,
+    verification_reason: verificationReason,
+    post_url: postUrl,
+  });
+  return { outcome, stateChanged: changed, alert, verificationReason, postUrl, summary: store.summary() };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
