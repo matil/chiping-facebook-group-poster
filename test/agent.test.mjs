@@ -8,8 +8,10 @@ import { loadConfig, normalizeGroupUrl } from '../src/config.mjs';
 import { createServer } from '../src/server.mjs';
 import {
   FacebookSessionRequiredError,
+  findFacebookGroupPostOnPage,
   findFacebookGroupComposer,
   loginIfNeeded,
+  normalizeFacebookGroupPostUrl,
   readLoginCredentials,
 } from '../src/facebook.mjs';
 import {
@@ -38,6 +40,103 @@ test('Chiping group URL is fixed to the intended Facebook group', () => {
   assert.equal(normalizeGroupUrl('https://www.facebook.com/groups/chiping/'), 'https://www.facebook.com/groups/chiping');
   assert.throws(() => normalizeGroupUrl('https://www.facebook.com/groups/other'), /Chiping Facebook group/);
   assert.throws(() => normalizeGroupUrl('http://www.facebook.com/groups/chiping'), /https/);
+});
+
+test('Facebook post verification accepts only concrete group post permalinks', () => {
+  assert.equal(
+    normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/chiping/posts/123456789/?__cft__=1'),
+    'https://www.facebook.com/groups/chiping/posts/123456789/'
+  );
+  assert.equal(
+    normalizeFacebookGroupPostUrl('/groups/123456789/permalink/987654321/'),
+    'https://www.facebook.com/groups/123456789/permalink/987654321/'
+  );
+  assert.equal(normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/chiping'), '');
+  assert.equal(normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/other/posts/123456789/'), '');
+  assert.equal(normalizeFacebookGroupPostUrl('https://example.test/groups/chiping/posts/123456789/'), '');
+});
+
+test('Facebook post verification requires the exact item link and returns its permalink', async () => {
+  const navigations = [];
+  const articles = [
+    {
+      visible: true,
+      text: 'Unrelated deal https://www.chiping.co.il/?item=9300',
+      hrefs: ['https://www.facebook.com/groups/chiping/posts/111/'],
+    },
+    {
+      visible: true,
+      text: 'Deal link',
+      hrefs: [
+        'https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.chiping.co.il%2F%3Fitem%3D9301',
+        'https://www.facebook.com/groups/chiping/posts/222/?__cft__=1',
+      ],
+    },
+  ];
+  const page = {
+    async goto(url) { navigations.push(url); },
+    async waitForTimeout() {},
+    locator(selector) {
+      assert.equal(selector, '[role="article"]');
+      return {
+        async count() { return articles.length; },
+        nth(index) {
+          const article = articles[index];
+          return {
+            async isVisible() { return article.visible; },
+            async innerText() { return article.text; },
+            locator(anchorSelector) {
+              assert.equal(anchorSelector, 'a[href]');
+              return {
+                async evaluateAll() { return article.hrefs; },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  const result = await findFacebookGroupPostOnPage(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?item=9301',
+    timeoutMs: 5000,
+  });
+  assert.deepEqual(result, {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/222/',
+  });
+  assert.equal(navigations.length, 1);
+});
+
+test('Facebook post verification does not confuse a closed composer with a published post', async () => {
+  const page = {
+    async goto() {},
+    async waitForTimeout() {},
+    locator(selector) {
+      assert.equal(selector, '[role="article"]');
+      return {
+        async count() { return 1; },
+        nth() {
+          return {
+            async isVisible() { return true; },
+            async innerText() { return 'https://www.chiping.co.il/?item=9301'; },
+            locator() {
+              return {
+                async evaluateAll() { return []; },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostOnPage(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?item=9301',
+    timeoutMs: 5000,
+  }), { found: false, postUrl: '' });
 });
 
 test('posting profile selection is opt-in and read from configuration', () => {
