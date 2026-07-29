@@ -719,6 +719,7 @@ export async function waitForFacebookLinkPreview(page, itemUrl, timeoutMs = 3000
     '[style*="background-image"]',
   ].join(', ');
   const deadline = Date.now() + Math.max(5000, Number(timeoutMs) || 30000);
+  let lastProbe = null;
   while (Date.now() < deadline) {
     const [dialogText, hrefs, visualMetrics] = await Promise.all([
       dialog.innerText().catch(() => ''),
@@ -749,12 +750,60 @@ export async function waitForFacebookLinkPreview(page, itemUrl, timeoutMs = 3000
     const hasLargePreviewVisual = visualMetrics.some((metric) => (
       metric.visible && metric.width >= 180 && metric.height >= 120
     ));
+    lastProbe = {
+      hasTargetAnchor,
+      hostOccurrences,
+      hrefs: hrefs.slice(0, 20),
+      visualMetrics: visualMetrics.slice(0, 30),
+    };
     if (hasLargePreviewVisual && (hasTargetAnchor || hostOccurrences >= 2)) {
       return { hasTargetAnchor, hostOccurrences, visualMetrics };
     }
     await page.waitForTimeout(500);
   }
-  throw new Error('Facebook did not render the Chiping link preview');
+  const cardCandidates = await dialog.locator('*').evaluateAll((nodes, expectedHost) => (
+    nodes
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        if (rect.width < 80 || rect.height < 40) return null;
+        const style = getComputedStyle(node);
+        const text = String(node.innerText || node.textContent || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 180);
+        const href = String(node.href || node.getAttribute('href') || '');
+        const hasMedia = node.matches(
+          'img, [role="img"], [data-visualcompletion="media-vc-image"]'
+        ) || style.backgroundImage !== 'none'
+          || Boolean(node.querySelector(
+            'img, [role="img"], [data-visualcompletion="media-vc-image"], [style*="background-image"]'
+          ));
+        if (!hasMedia && !text.toLowerCase().includes(expectedHost) && !href.includes(expectedHost)) {
+          return null;
+        }
+        return {
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          tagName: node.tagName,
+          role: node.getAttribute('role') || '',
+          ariaLabel: String(node.getAttribute('aria-label') || '').slice(0, 100),
+          dataVisualCompletion: node.getAttribute('data-visualcompletion') || '',
+          backgroundImage: style.backgroundImage !== 'none',
+          hasMedia,
+          href: href.slice(0, 240),
+          text,
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => (left.width * left.height) - (right.width * right.height))
+      .slice(0, 40)
+  ), host).catch(() => []);
+  const error = new Error('Facebook did not render the Chiping link preview');
+  error.previewProbe = {
+    ...lastProbe,
+    cardCandidates,
+  };
+  throw error;
 }
 
 async function waitForEnabledFacebookControl(page, control, timeoutMs = 45000) {
@@ -870,6 +919,7 @@ export async function previewFacebookGroupLinkJob(payload, config, options = {})
     } catch (error) {
       await captureFacebookDebug(page, config, 'link-preview-dry-run-failed', {
         error: String(error?.message || 'Facebook link preview failed').slice(0, 500),
+        previewProbe: error?.previewProbe || null,
       });
       if (options.screenshotPath) {
         await page.screenshot({ path: options.screenshotPath, fullPage: true }).catch(() => {});
