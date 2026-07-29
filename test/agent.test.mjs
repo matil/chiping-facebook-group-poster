@@ -583,6 +583,64 @@ test('Facebook composer recognizes a CSS-backed link card around a contained pro
   assert.equal(result.visualMetrics[0].role, 'img');
 });
 
+test('Facebook link-card validation stays scoped to the textbox composer dialog', async () => {
+  const composerDialog = {
+    async innerText() {
+      return [
+        'https://www.chiping.co.il/?item=10042',
+        'CHIPING.CO.IL',
+      ].join('\n');
+    },
+    locator(selector) {
+      if (selector === 'a[href]') {
+        return {
+          async evaluateAll() {
+            return ['https://www.chiping.co.il/?item=10042'];
+          },
+        };
+      }
+      return {
+        async evaluateAll() {
+          return [{
+            width: 466,
+            height: 277,
+            visible: true,
+            tagName: 'DIV',
+            role: 'img',
+          }];
+        },
+      };
+    },
+  };
+  const unrelatedLastDialog = {
+    async innerText() { return ''; },
+    locator() {
+      return { async evaluateAll() { return []; } };
+    },
+  };
+  const textBox = {
+    locator(selector) {
+      assert.equal(selector, 'xpath=ancestor::*[@role="dialog"][1]');
+      return composerDialog;
+    },
+  };
+  const page = {
+    locator(selector) {
+      assert.equal(selector, '[role="dialog"]');
+      return { last() { return unrelatedLastDialog; } };
+    },
+    async waitForTimeout() {},
+  };
+
+  const result = await waitForFacebookLinkPreview(
+    page,
+    'https://www.chiping.co.il/?item=10042',
+    30000,
+    textBox
+  );
+  assert.equal(result.hasTargetAnchor, true);
+});
+
 test('Facebook publisher uses a clickable link preview instead of uploading a photo', async () => {
   const source = await readFile(new URL('../src/facebook.mjs', import.meta.url), 'utf8');
   const publisher = source.slice(

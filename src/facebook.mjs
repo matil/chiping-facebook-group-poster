@@ -706,10 +706,17 @@ export async function fillFacebookComposerText(page, textBox, message) {
   }
 }
 
-export async function waitForFacebookLinkPreview(page, itemUrl, timeoutMs = 30000) {
+export async function waitForFacebookLinkPreview(
+  page,
+  itemUrl,
+  timeoutMs = 30000,
+  composerTextBox = null
+) {
   const target = new URL(String(itemUrl || ''));
   const host = target.hostname.replace(/^www\./i, '').toLowerCase();
-  const dialog = page.locator('[role="dialog"]').last();
+  const dialog = composerTextBox?.locator
+    ? composerTextBox.locator('xpath=ancestor::*[@role="dialog"][1]')
+    : page.locator('[role="dialog"]').last();
   const visualSelector = [
     'a[href]',
     '[role="link"]',
@@ -907,7 +914,12 @@ export async function previewFacebookGroupLinkJob(payload, config, options = {})
       const textBox = await findFacebookComposerTextBox(page);
       if (!textBox) throw new Error('Facebook group post text box was not found');
       await fillFacebookComposerText(page, textBox, String(payload.message));
-      const linkPreview = await waitForFacebookLinkPreview(page, payload.itemUrl);
+      const linkPreview = await waitForFacebookLinkPreview(
+        page,
+        payload.itemUrl,
+        30000,
+        textBox
+      );
       await captureFacebookDebug(page, config, 'link-preview-dry-run', {
         previewMetadata,
         linkPreview,
@@ -975,7 +987,12 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       throw error;
     }
     await captureFacebookDebug(page, config, 'text-entered');
-    const linkPreview = await waitForFacebookLinkPreview(page, job.payload.itemUrl);
+    const linkPreview = await waitForFacebookLinkPreview(
+      page,
+      job.payload.itemUrl,
+      30000,
+      textBox
+    );
     await captureFacebookDebug(page, config, 'link-preview-ready', linkPreview);
     if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
 
