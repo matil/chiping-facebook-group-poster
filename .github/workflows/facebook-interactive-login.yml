@@ -111,6 +111,7 @@ jobs:
           test -n "$remote_url"
           browser_url="${remote_url}/vnc.html?autoconnect=true&resize=scale"
           printf 'remote_url=%s\n' "$browser_url" >> "$GITHUB_OUTPUT"
+          printf 'Remote browser URL: %s\n' "$browser_url"
           {
             printf '### Temporary Facebook browser\n\n'
             printf 'Open [%s](%s) while this workflow is running.\n' "$browser_url" "$browser_url"
