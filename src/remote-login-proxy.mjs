@@ -1,5 +1,6 @@
 const UPSTREAM_SUFFIX = '.trycloudflare.com';
 const BAKED_UPSTREAM = '__REMOTE_UPSTREAM__';
+const DEPLOYMENT_MARKER = '__DEPLOYMENT_MARKER__';
 const PUBLIC_HOSTS = new Set([
   'fb-login.chiping.co.il',
   'chiping-fb-login.pages.dev',
@@ -34,6 +35,9 @@ export async function proxyRemoteLogin(request, env, fetchImpl = fetch) {
   const incoming = new URL(request.url);
   if (incoming.protocol !== 'https:' || !PUBLIC_HOSTS.has(incoming.hostname)) {
     return new Response('Not found', { status: 404 });
+  }
+  if (incoming.pathname === '/__ready') {
+    return new Response(DEPLOYMENT_MARKER, { headers: safeHeaders() });
   }
   if (incoming.pathname === '/') {
     return Response.redirect(`${incoming.origin}/vnc.html?autoconnect=true&resize=scale`, 302);

@@ -114,7 +114,8 @@ jobs:
           proxy_dir="$RUNNER_TEMP/facebook-remote-proxy"
           mkdir -p "$proxy_dir"
           cp src/remote-login-proxy.mjs "$proxy_dir/_worker.js"
-          REMOTE_UPSTREAM="$remote_url" PROXY_FILE="$proxy_dir/_worker.js" \
+          REMOTE_UPSTREAM="$remote_url" DEPLOYMENT_MARKER="$GITHUB_RUN_ID" \
+            PROXY_FILE="$proxy_dir/_worker.js" \
             node --input-type=module <<'NODE'
           import { readFile, writeFile } from 'node:fs/promises';
           const upstream = new URL(process.env.REMOTE_UPSTREAM);
@@ -123,20 +124,30 @@ jobs:
           }
           const file = process.env.PROXY_FILE;
           const source = await readFile(file, 'utf8');
-          if (!source.includes('__REMOTE_UPSTREAM__')) throw new Error('Proxy placeholder is missing');
-          await writeFile(file, source.replace('__REMOTE_UPSTREAM__', upstream.origin));
+          if (!source.includes('__REMOTE_UPSTREAM__') || !source.includes('__DEPLOYMENT_MARKER__')) {
+            throw new Error('Proxy placeholder is missing');
+          }
+          await writeFile(
+            file,
+            source
+              .replace('__REMOTE_UPSTREAM__', upstream.origin)
+              .replace('__DEPLOYMENT_MARKER__', process.env.DEPLOYMENT_MARKER)
+          );
           NODE
           printf '<!doctype html><title>Chiping remote login</title>\n' > "$proxy_dir/index.html"
           npx --yes wrangler@4.75.0 pages deploy "$proxy_dir" \
             --project-name chiping-fb-login \
             --branch main \
             --commit-hash "$GITHUB_SHA" \
-            --commit-message "Temporary Facebook login ${GITHUB_RUN_ID}"
+            --commit-message "Temporary Facebook login ${GITHUB_RUN_ID}" \
+            --commit-dirty=true
           browser_url="https://fb-login.chiping.co.il/vnc.html?autoconnect=true&resize=scale"
-          for attempt in {1..30}; do
-            curl --fail --silent "$browser_url" >/dev/null && break
+          ready_url="https://fb-login.chiping.co.il/__ready"
+          for attempt in {1..90}; do
+            test "$(curl --fail --silent "$ready_url" || true)" = "$GITHUB_RUN_ID" && break
             sleep 1
           done
+          test "$(curl --fail --silent "$ready_url")" = "$GITHUB_RUN_ID"
           curl --fail --silent --show-error "$browser_url" >/dev/null
           printf 'remote_url=%s\n' "$browser_url" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$browser_url" > "$RUNNER_TEMP/facebook-remote-url.txt"
