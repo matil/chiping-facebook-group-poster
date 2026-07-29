@@ -28,18 +28,40 @@ async function visible(page, selector) {
   return page.locator(selector).first().isVisible().catch(() => false);
 }
 
-async function fillLoginForm(page, config) {
+async function firstVisible(page, selector) {
+  const candidates = page.locator(selector);
+  const count = await candidates.count();
+  for (let index = 0; index < count; index += 1) {
+    const candidate = candidates.nth(index);
+    if (await candidate.isVisible().catch(() => false)) return candidate;
+  }
+  return null;
+}
+
+export async function fillLoginForm(page, config) {
   if (!await visible(page, 'input[name="email"], input[type="email"]')) return false;
   const credentials = await readLoginCredentials(config);
   if (!credentials) throw new Error('Facebook login credentials are not configured');
 
+  const password = page.locator('input[name="pass"], input[type="password"]').first();
   await page.locator('input[name="email"], input[type="email"]').first().fill(credentials.email);
-  await page.locator('input[name="pass"], input[type="password"]').first().fill(credentials.password);
-  const submit = page.locator(
-    '[role="button"][aria-label="Log In"], [role="button"]:has-text("Log in"), '
-    + 'button[name="login"], input[name="login"]'
-  ).first();
-  await submit.click({ timeout: 10000 });
+  await password.fill(credentials.password);
+  const submit = await firstVisible(
+    page,
+    'form:has(input[name="pass"]) button[type="submit"], '
+    + 'form:has(input[name="pass"]) input[type="submit"], '
+    + 'button[name="login"], input[name="login"], '
+    + '[role="button"][aria-label="Log In"], [role="button"]:has-text("Log in")'
+  );
+  if (submit) {
+    try {
+      await submit.click({ timeout: 3000 });
+      return true;
+    } catch {
+      // Facebook occasionally replaces the visible control during hydration.
+    }
+  }
+  await password.press('Enter');
   return true;
 }
 

@@ -7,6 +7,7 @@ import { signPayload } from '../src/auth.mjs';
 import { loadConfig, normalizeGroupUrl } from '../src/config.mjs';
 import { createServer } from '../src/server.mjs';
 import { FacebookSessionRequiredError, loginIfNeeded, readLoginCredentials } from '../src/facebook.mjs';
+import { fillLoginForm } from '../src/interactive-login.mjs';
 import { JobStore } from '../src/store.mjs';
 
 const secret = 'facebook-group-poster-test-secret-with-at-least-32-characters';
@@ -96,6 +97,51 @@ test('automatic login stops on a two-step challenge before navigating away', asy
         && error.message === 'Facebook requires a security check'
     );
     assert.equal(groupNavigations, 0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('interactive login ignores a hidden submit control', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
+  try {
+    const emailFile = path.join(directory, 'email');
+    const passwordFile = path.join(directory, 'password');
+    await writeFile(emailFile, 'admin@example.test');
+    await writeFile(passwordFile, 'secret-password');
+
+    let clickedVisibleSubmit = false;
+    let pressedEnter = false;
+    const input = (kind) => ({
+      first() { return this; },
+      async isVisible() { return true; },
+      async fill() {},
+      async press(key) {
+        if (kind === 'password' && key === 'Enter') pressedEnter = true;
+      },
+    });
+    const page = {
+      locator(selector) {
+        if (selector.startsWith('input[name="email"]')) return input('email');
+        if (selector.startsWith('input[name="pass"]')) return input('password');
+        return {
+          async count() { return 2; },
+          nth(index) {
+            return {
+              async isVisible() { return index === 1; },
+              async click() { clickedVisibleSubmit = true; },
+            };
+          },
+        };
+      },
+    };
+
+    assert.equal(await fillLoginForm(page, {
+      facebookLoginEmailFile: emailFile,
+      facebookLoginPasswordFile: passwordFile,
+    }), true);
+    assert.equal(clickedVisibleSubmit, true);
+    assert.equal(pressedEnter, false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
