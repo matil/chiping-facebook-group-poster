@@ -12,7 +12,11 @@ import {
   loginIfNeeded,
   readLoginCredentials,
 } from '../src/facebook.mjs';
-import { fillLoginForm, loginCompleted } from '../src/interactive-login.mjs';
+import {
+  advanceRememberedLogin,
+  fillLoginForm,
+  loginCompleted,
+} from '../src/interactive-login.mjs';
 import { JobStore } from '../src/store.mjs';
 
 const secret = 'facebook-group-poster-test-secret-with-at-least-32-characters';
@@ -150,6 +154,80 @@ test('interactive login ignores a hidden submit control', async () => {
     assert.equal(clickedVisibleSubmit, true);
     assert.equal(pressedEnter, false);
     assert.match(submitSelector, /aria-label="התחברות"/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('interactive login continues a remembered Facebook account automatically', async () => {
+  let clicked = false;
+  const hidden = { async isVisible() { return false; } };
+  const collection = (items = []) => ({
+    first() { return items[0] || hidden; },
+    async count() { return items.length; },
+    nth(index) { return items[index]; },
+  });
+  const page = {
+    url: () => 'https://www.facebook.com/login/?next=%2Fgroups%2Fchiping',
+    locator(selector) {
+      if (selector.includes('input[name="email"]')) return collection();
+      if (selector === 'input[name="pass"], input[type="password"]') return collection();
+      if (selector.includes('button:has-text("Continue")')) {
+        return collection([{
+          async isVisible() { return true; },
+          async click() { clicked = true; },
+        }]);
+      }
+      return collection();
+    },
+  };
+
+  assert.equal(await advanceRememberedLogin(page, {}), true);
+  assert.equal(clicked, true);
+});
+
+test('interactive login fills password-only confirmation from the secret file', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
+  try {
+    const passwordFile = path.join(directory, 'password');
+    const emailFile = path.join(directory, 'email');
+    await writeFile(emailFile, 'admin@example.test');
+    await writeFile(passwordFile, 'secret-password');
+
+    let filledPassword = '';
+    let clicked = false;
+    const hidden = { async isVisible() { return false; } };
+    const collection = (items = []) => ({
+      first() { return items[0] || hidden; },
+      async count() { return items.length; },
+      nth(index) { return items[index]; },
+    });
+    const page = {
+      url: () => 'https://www.facebook.com/?crypted_string=confirmation',
+      locator(selector) {
+        if (selector.includes('input[name="email"]')) return collection();
+        if (selector === 'input[name="pass"], input[type="password"]') {
+          return collection([{
+            async isVisible() { return true; },
+            async fill(value) { filledPassword = value; },
+          }]);
+        }
+        if (selector.includes('button[type="submit"]')) {
+          return collection([{
+            async isVisible() { return true; },
+            async click() { clicked = true; },
+          }]);
+        }
+        return collection();
+      },
+    };
+
+    assert.equal(await advanceRememberedLogin(page, {
+      facebookLoginEmailFile: emailFile,
+      facebookLoginPasswordFile: passwordFile,
+    }), true);
+    assert.equal(filledPassword, 'secret-password');
+    assert.equal(clicked, true);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

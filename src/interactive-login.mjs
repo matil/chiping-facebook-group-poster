@@ -70,6 +70,40 @@ export async function fillLoginForm(page, config) {
   return true;
 }
 
+export async function advanceRememberedLogin(page, config) {
+  const url = new URL(page.url());
+  const rememberedFlow = ['facebook.com', 'www.facebook.com'].includes(url.hostname)
+    && (url.pathname.startsWith('/login') || url.searchParams.has('crypted_string'));
+  if (!rememberedFlow) return false;
+
+  const emailVisible = await visible(page, 'input[name="email"], input[type="email"]');
+  const password = await firstVisible(page, 'input[name="pass"], input[type="password"]');
+  if (!emailVisible && password) {
+    const credentials = await readLoginCredentials(config);
+    if (!credentials) throw new Error('Facebook login credentials are not configured');
+    await password.fill(credentials.password);
+    const submit = await firstVisible(
+      page,
+      'button[type="submit"], input[type="submit"], '
+      + '[role="button"]:has-text("Log in"), [role="button"]:has-text("Continue"), '
+      + '[role="button"]:has-text("התחבר"), [role="button"]:has-text("המשך")'
+    );
+    if (!submit) throw new Error('Facebook password confirmation button was not found');
+    await submit.click({ timeout: 3000 });
+    return true;
+  }
+
+  if (emailVisible) return false;
+  const continueButton = await firstVisible(
+    page,
+    'button:has-text("Continue"), [role="button"]:has-text("Continue"), '
+    + 'button:has-text("המשך"), [role="button"]:has-text("המשך")'
+  );
+  if (!continueButton) return false;
+  await continueButton.click({ timeout: 3000 });
+  return true;
+}
+
 export async function loginCompleted(page, groupUrl) {
   if (await visible(page, 'input[name="email"], input[type="email"]')) return false;
   const url = page.url();
@@ -119,6 +153,10 @@ export async function runInteractiveLogin(env = process.env, options = {}) {
 
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+      if (await advanceRememberedLogin(page, config)) {
+        await page.waitForTimeout(POLL_INTERVAL_MS);
+        continue;
+      }
       if (await loginCompleted(page, config.groupUrl)) {
         await context.storageState({ path: config.storageStateFile });
         await context.close();
