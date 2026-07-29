@@ -11,6 +11,7 @@ import {
   FacebookSessionRequiredError,
   fillFacebookComposerText,
   findFacebookGroupPostOnPage,
+  findFacebookGroupPostWithMediaFallback,
   findFacebookGroupComposer,
   loginIfNeeded,
   normalizeFacebookGroupPostUrl,
@@ -312,6 +313,125 @@ test('Facebook post verification follows the replacement tab Facebook opens', as
     postUrl: 'https://www.facebook.com/groups/chiping/posts/444/',
   });
   assert.equal(originalScans, 2);
+});
+
+test('Facebook post verification checks media before a stale group feed can cause a duplicate', async () => {
+  let openedMedia = 0;
+  const candidatePage = {
+    async goto(url) {
+      openedMedia += 1;
+      assert.equal(
+        url,
+        'https://www.facebook.com/photo/?fbid=123456&set=g.421300648875078'
+      );
+    },
+    async waitForTimeout() {},
+    async close() {},
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return { async count() { return 0; } };
+      }
+      if (selector === 'body') {
+        return {
+          async innerText() {
+            return 'Existing deal https://www.chiping.co.il/?item=9301';
+          },
+        };
+      }
+      if (selector === 'a[href]') {
+        return { async evaluateAll() { return []; } };
+      }
+      throw new Error(`Unexpected candidate selector: ${selector}`);
+    },
+  };
+  const page = {
+    async waitForTimeout() {},
+    async evaluate() {},
+    context() {
+      return {
+        async newPage() { return candidatePage; },
+      };
+    },
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return { async count() { return 0; } };
+      }
+      if (selector === 'a[href]:has(img)') {
+        return {
+          async evaluateAll() {
+            return [
+              'https://www.facebook.com/photo/?fbid=123456&set=g.421300648875078',
+            ];
+          },
+        };
+      }
+      throw new Error(`Unexpected group selector: ${selector}`);
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostWithMediaFallback(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?item=9301',
+    timeoutMs: 5000,
+    currentPageOnly: true,
+  }), {
+    found: true,
+    postUrl: 'https://www.facebook.com/photo/?fbid=123456&set=g.421300648875078',
+  });
+  assert.equal(openedMedia, 1);
+});
+
+test('Facebook media fallback does not match a different Chiping item', async () => {
+  const candidatePage = {
+    async goto() {},
+    async waitForTimeout() {},
+    async close() {},
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return { async count() { return 0; } };
+      }
+      if (selector === 'body') {
+        return {
+          async innerText() {
+            return 'Different deal https://www.chiping.co.il/?item=93010';
+          },
+        };
+      }
+      if (selector === 'a[href]') {
+        return { async evaluateAll() { return []; } };
+      }
+      throw new Error(`Unexpected candidate selector: ${selector}`);
+    },
+  };
+  const page = {
+    async waitForTimeout() {},
+    async evaluate() {},
+    context() {
+      return {
+        async newPage() { return candidatePage; },
+      };
+    },
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return { async count() { return 0; } };
+      }
+      if (selector === 'a[href]:has(img)') {
+        return {
+          async evaluateAll() {
+            return ['https://www.facebook.com/photo/?fbid=654321&set=g.421300648875078'];
+          },
+        };
+      }
+      throw new Error(`Unexpected group selector: ${selector}`);
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostWithMediaFallback(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?item=9301',
+    timeoutMs: 5000,
+    currentPageOnly: true,
+  }), { found: false, postUrl: '' });
 });
 
 test('posting profile selection is opt-in and read from configuration', () => {
