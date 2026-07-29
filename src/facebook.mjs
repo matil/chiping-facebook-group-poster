@@ -419,6 +419,78 @@ async function downloadImage(imageUrl, fetchImpl = fetch) {
   return { bytes, mimeType, filename: `chiping-deal.${extension}` };
 }
 
+export async function attachFacebookComposerImage(page, image) {
+  const dialog = page.locator('[role="dialog"]').last();
+  const previewImages = dialog.locator('img');
+  const initialPreviewCount = await previewImages.count();
+  let attached = false;
+  const photoButton = await firstVisibleLocator(page, [
+    '[role="dialog"] [role="button"][aria-label*="Photo/video"]',
+    '[role="dialog"] [role="button"][aria-label*="Photo"]',
+    '[role="dialog"] [role="button"][aria-label*="\u05ea\u05de\u05d5\u05e0\u05d4"]',
+    '[role="dialog"] [aria-label*="Photo/video"]',
+  ]);
+  if (photoButton) {
+    try {
+      const [fileChooser] = await Promise.all([
+        page.waitForEvent('filechooser', { timeout: 10000 }),
+        photoButton.click({ timeout: 10000 }),
+      ]);
+      await fileChooser.setFiles({
+        name: image.filename,
+        mimeType: image.mimeType,
+        buffer: image.bytes,
+      });
+      attached = true;
+    } catch {
+      // Facebook can reveal an input instead of emitting a chooser event.
+    }
+  }
+  if (!attached) {
+    const scopedInputs = dialog.locator('input[type="file"]');
+    if (!await scopedInputs.count()) throw new Error('Facebook composer image input was not found');
+    await scopedInputs.first().setInputFiles({
+      name: image.filename,
+      mimeType: image.mimeType,
+      buffer: image.bytes,
+    });
+  }
+
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    if (await previewImages.count() > initialPreviewCount) return;
+    await page.waitForTimeout(500);
+  }
+  throw new Error('Facebook did not attach the image preview');
+}
+
+export async function fillFacebookComposerText(page, textBox, message) {
+  const expected = String(message || '').trim();
+  await textBox.click({ timeout: 10000 });
+  await textBox.fill(expected);
+  await page.waitForTimeout(300);
+  let actual = String(await textBox.innerText().catch(() => '')).trim();
+  if (!actual.includes(expected.slice(0, Math.min(20, expected.length)))) {
+    await textBox.click({ timeout: 10000 });
+    await page.keyboard.press('Control+A').catch(() => {});
+    await page.keyboard.insertText(expected);
+    await page.waitForTimeout(300);
+    actual = String(await textBox.innerText().catch(() => '')).trim();
+  }
+  if (!actual.includes(expected.slice(0, Math.min(20, expected.length)))) {
+    throw new Error('Facebook composer did not retain the post text');
+  }
+}
+
+async function waitForEnabledFacebookControl(page, control, timeoutMs = 45000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await control.isEnabled().catch(() => false)) return;
+    await page.waitForTimeout(500);
+  }
+  throw new Error('Facebook group publish button stayed disabled');
+}
+
 async function captureFacebookDebug(page, config, name, metadata = null) {
   const directory = String(config.facebookDebugDir || '').trim();
   if (!directory) return;
@@ -506,18 +578,16 @@ export async function postFacebookGroupJob(job, config, options = {}) {
 
     const textBox = await firstVisibleLocator(page, TEXTBOX_SELECTORS);
     if (!textBox) throw new Error('Facebook group post text box was not found');
-    await textBox.fill(String(job.payload.message));
 
     const image = await downloadImage(job.payload.imageUrl, fetchImpl);
-    const fileInput = page.locator('input[type="file"]').first();
-    await fileInput.waitFor({ state: 'attached', timeout: 10000 });
-    await fileInput.setInputFiles({ name: image.filename, mimeType: image.mimeType, buffer: image.bytes });
-    await page.waitForTimeout(1500);
+    await attachFacebookComposerImage(page, image);
+    await fillFacebookComposerText(page, textBox, String(job.payload.message));
     if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
-    await captureFacebookDebug(page, config, 'before-submit');
 
     const postButton = await firstVisibleLocator(page, POST_SELECTORS);
     if (!postButton) throw new Error('Facebook group publish button was not found');
+    await waitForEnabledFacebookControl(page, postButton);
+    await captureFacebookDebug(page, config, 'before-submit');
     await captureFacebookDebug(page, config, 'publish-control', {
       text: await postButton.innerText().catch(() => ''),
       ariaLabel: await postButton.getAttribute('aria-label').catch(() => ''),
