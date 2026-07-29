@@ -2,7 +2,11 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
 import { restoreEncryptedActionState, saveEncryptedActionState } from './action-state.mjs';
-import { readLoginCredentials, verifyFacebookGroupAccess } from './facebook.mjs';
+import {
+  findFacebookGroupComposer,
+  readLoginCredentials,
+  verifyFacebookGroupAccess,
+} from './facebook.mjs';
 import { JobStore } from './store.mjs';
 
 const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000;
@@ -66,18 +70,12 @@ export async function fillLoginForm(page, config) {
   return true;
 }
 
-async function loginCompleted(page, groupUrl) {
+export async function loginCompleted(page, groupUrl) {
   if (await visible(page, 'input[name="email"], input[type="email"]')) return false;
   const url = page.url();
   if (/\/(?:checkpoint|recover|two_step_verification|security)\//i.test(url)) return false;
   if (!url.startsWith(groupUrl)) return false;
-  return visible(
-    page,
-    '[role="button"][aria-label*="Write something"], '
-    + '[role="button"][aria-label*="Create public post"], '
-    + '[role="button"][aria-label*="כתוב משהו"], '
-    + '[role="button"][aria-label*="צור פוסט"]'
-  );
+  return Boolean(await findFacebookGroupComposer(page));
 }
 
 export async function runInteractiveLogin(env = process.env, options = {}) {
@@ -126,6 +124,13 @@ export async function runInteractiveLogin(env = process.env, options = {}) {
         await context.close();
         await browser.close();
 
+        // Preserve a successful login even if Facebook changes a later UI selector.
+        await saveEncryptedActionState({
+          encryptedFile,
+          secret: stateSecret,
+          dataDir: config.dataDir,
+          storageStateFile: config.storageStateFile,
+        });
         await verifyFacebookGroupAccess(config, { playwright });
         await store.persist();
         await saveEncryptedActionState({

@@ -6,8 +6,13 @@ import path from 'node:path';
 import { signPayload } from '../src/auth.mjs';
 import { loadConfig, normalizeGroupUrl } from '../src/config.mjs';
 import { createServer } from '../src/server.mjs';
-import { FacebookSessionRequiredError, loginIfNeeded, readLoginCredentials } from '../src/facebook.mjs';
-import { fillLoginForm } from '../src/interactive-login.mjs';
+import {
+  FacebookSessionRequiredError,
+  findFacebookGroupComposer,
+  loginIfNeeded,
+  readLoginCredentials,
+} from '../src/facebook.mjs';
+import { fillLoginForm, loginCompleted } from '../src/interactive-login.mjs';
 import { JobStore } from '../src/store.mjs';
 
 const secret = 'facebook-group-poster-test-secret-with-at-least-32-characters';
@@ -148,6 +153,51 @@ test('interactive login ignores a hidden submit control', async () => {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('current Facebook text-only composer is recognized after scrolling to the top', async () => {
+  let scrolledToTop = false;
+  let matchedSelector = '';
+  const composer = { async isVisible() { return true; } };
+  const page = {
+    async evaluate() { scrolledToTop = true; },
+    async waitForTimeout() {},
+    locator(selector) {
+      return {
+        first() {
+          matchedSelector = selector;
+          return selector === '[role="button"]:has-text("Write something")'
+            ? composer
+            : { async isVisible() { return false; } };
+        },
+      };
+    },
+  };
+
+  assert.equal(await findFacebookGroupComposer(page), composer);
+  assert.equal(scrolledToTop, true);
+  assert.equal(matchedSelector, '[role="button"]:has-text("Write something")');
+});
+
+test('interactive login accepts the current group composer without an aria-label', async () => {
+  const page = {
+    url: () => 'https://www.facebook.com/groups/chiping',
+    async evaluate() {},
+    async waitForTimeout() {},
+    locator(selector) {
+      const visible = selector === '[role="button"]:has-text("Write something")';
+      return {
+        first() {
+          return { async isVisible() { return visible; } };
+        },
+      };
+    },
+  };
+
+  assert.equal(
+    await loginCompleted(page, 'https://www.facebook.com/groups/chiping'),
+    true
+  );
 });
 
 test('job store is durable and idempotent', async () => {

@@ -10,6 +10,11 @@ const COMPOSER_SELECTORS = [
   '[role="button"][aria-label*="Create public post"]',
   '[role="button"][aria-label*="כתוב משהו"]',
   '[role="button"][aria-label*="צור פוסט"]',
+  '[role="button"]:has-text("Write something")',
+  '[role="button"]:has-text("Create post")',
+  '[role="button"]:has-text("כתוב משהו")',
+  '[role="button"]:has-text("צור פוסט")',
+  '[role="dialog"] [contenteditable="true"][role="textbox"]',
 ];
 
 const TEXTBOX_SELECTORS = [
@@ -40,6 +45,12 @@ function firstVisibleLocator(page, selectors) {
     }
     return null;
   })();
+}
+
+export async function findFacebookGroupComposer(page) {
+  await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+  await page.waitForTimeout(500);
+  return firstVisibleLocator(page, COMPOSER_SELECTORS);
 }
 
 async function isSecurityChallenge(page) {
@@ -197,7 +208,7 @@ export async function verifyFacebookGroupAccess(config, options = {}) {
     await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
-    const composer = await firstVisibleLocator(page, COMPOSER_SELECTORS);
+    const composer = await findFacebookGroupComposer(page);
     if (!composer) throw new FacebookSessionRequiredError('Facebook group posting is not available to the configured profile');
     return { groupUrl: config.groupUrl };
   } finally {
@@ -236,7 +247,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
 
-    const composer = await firstVisibleLocator(page, COMPOSER_SELECTORS);
+    const composer = await findFacebookGroupComposer(page);
     if (!composer) throw new Error('Facebook group composer was not found');
     await composer.click();
 

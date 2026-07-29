@@ -169,7 +169,7 @@ jobs:
         run: node src/interactive-login.mjs
 
       - name: Save encrypted Facebook state
-        if: success()
+        if: ${{ always() && hashFiles('.facebook-state/facebook-agent.enc') != '' }}
         uses: actions/cache/save@v4
         with:
           path: .facebook-state

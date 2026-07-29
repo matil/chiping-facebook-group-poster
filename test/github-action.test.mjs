@@ -158,5 +158,6 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
   assert.match(workflow, /x11vnc/);
   assert.match(workflow, /node src\/interactive-login\.mjs/);
   assert.match(workflow, /Save encrypted Facebook state/);
+  assert.match(workflow, /always\(\) && hashFiles\('\.facebook-state\/facebook-agent\.enc'\) != ''/);
   assert.doesNotMatch(workflow, /FACEBOOK_ACTION_POSTING_ENABLED/);
 });
