@@ -103,7 +103,7 @@ async function createFacebookContext(chromium, config) {
   return { context, browser, stateFile };
 }
 
-async function loginIfNeeded(page, config) {
+export async function loginIfNeeded(page, config) {
   if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
   if (!await hasLoginForm(page)) return;
   const credentials = await readLoginCredentials(config);
@@ -120,6 +120,9 @@ async function loginIfNeeded(page, config) {
   const submit = page.locator('button[name="login"], input[name="login"], [role="button"]:has-text("Log in"), [role="button"]:has-text("התחבר")').first();
   await submit.click({ timeout: 10000 });
   await page.waitForTimeout(3000);
+  if (await isSecurityChallenge(page)) {
+    throw new FacebookSessionRequiredError('Facebook requires a security check');
+  }
   await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
   if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError('Facebook requires a security check');
   if (await hasLoginForm(page)) throw new FacebookSessionRequiredError('Facebook did not accept the configured login credentials');
