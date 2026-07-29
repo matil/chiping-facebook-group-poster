@@ -21,12 +21,6 @@ const COMPOSER_SELECTORS = [
   '[role="dialog"] [contenteditable="true"][role="textbox"]',
 ];
 
-const TEXTBOX_SELECTORS = [
-  '[role="dialog"] [contenteditable="true"][role="textbox"]',
-  '[contenteditable="true"][role="textbox"]',
-  '[contenteditable="true"]',
-];
-
 const POST_SELECTORS = [
   '[role="dialog"] [role="button"][aria-label="Post"]',
   '[role="dialog"] [role="button"][aria-label="פרסום"]',
@@ -55,6 +49,25 @@ export async function findFacebookGroupComposer(page) {
   await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
   await page.waitForTimeout(500);
   return firstVisibleLocator(page, COMPOSER_SELECTORS);
+}
+
+export async function findFacebookComposerTextBox(page, timeoutMs = 15000) {
+  const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 15000);
+  while (Date.now() < deadline) {
+    const candidates = page.locator(
+      '[role="dialog"] [contenteditable="true"][role="textbox"]'
+    );
+    const count = Math.min(await candidates.count().catch(() => 0), 10);
+    for (let index = count - 1; index >= 0; index -= 1) {
+      const candidate = candidates.nth(index);
+      if (!await candidate.isVisible().catch(() => false)) continue;
+      const label = String(await candidate.getAttribute('aria-label').catch(() => '') || '');
+      if (/(?:^|\b)comment(?:\b|$)|\u05ea\u05d2\u05d5\u05d1\u05d4/i.test(label)) continue;
+      return candidate;
+    }
+    await page.waitForTimeout(250);
+  }
+  return null;
 }
 
 export async function sortFacebookGroupFeedNewest(page) {
@@ -785,7 +798,7 @@ export async function verifyFacebookGroupAccess(config, options = {}) {
     } catch {
       throw new FacebookSessionRequiredError('Facebook group composer could not be opened');
     }
-    const textBox = await firstVisibleLocator(page, TEXTBOX_SELECTORS);
+    const textBox = await findFacebookComposerTextBox(page);
     if (!textBox) throw new FacebookSessionRequiredError('Facebook group post text box is not available');
     await page.keyboard.press('Escape').catch(() => {});
     return { groupUrl: config.groupUrl };
@@ -831,18 +844,28 @@ export async function previewFacebookGroupLinkJob(payload, config, options = {})
     const composer = await findFacebookGroupComposer(page);
     if (!composer) throw new Error('Facebook group composer was not found');
     await composer.click();
-    const textBox = await firstVisibleLocator(page, TEXTBOX_SELECTORS);
-    if (!textBox) throw new Error('Facebook group post text box was not found');
-    await fillFacebookComposerText(page, textBox, String(payload.message));
-    const linkPreview = await waitForFacebookLinkPreview(page, payload.itemUrl);
-    await captureFacebookDebug(page, config, 'link-preview-dry-run', {
-      previewMetadata,
-      linkPreview,
-    });
-    if (options.screenshotPath) {
-      await page.screenshot({ path: options.screenshotPath, fullPage: true });
+    try {
+      const textBox = await findFacebookComposerTextBox(page);
+      if (!textBox) throw new Error('Facebook group post text box was not found');
+      await fillFacebookComposerText(page, textBox, String(payload.message));
+      const linkPreview = await waitForFacebookLinkPreview(page, payload.itemUrl);
+      await captureFacebookDebug(page, config, 'link-preview-dry-run', {
+        previewMetadata,
+        linkPreview,
+      });
+      if (options.screenshotPath) {
+        await page.screenshot({ path: options.screenshotPath, fullPage: true });
+      }
+      return { ready: true, previewMetadata, linkPreview };
+    } catch (error) {
+      await captureFacebookDebug(page, config, 'link-preview-dry-run-failed', {
+        error: String(error?.message || 'Facebook link preview failed').slice(0, 500),
+      });
+      if (options.screenshotPath) {
+        await page.screenshot({ path: options.screenshotPath, fullPage: true }).catch(() => {});
+      }
+      throw error;
     }
-    return { ready: true, previewMetadata, linkPreview };
   } finally {
     if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
     await context.close();
@@ -875,7 +898,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     if (!composer) throw new Error('Facebook group composer was not found');
     await composer.click();
 
-    let textBox = await firstVisibleLocator(page, TEXTBOX_SELECTORS);
+    const textBox = await findFacebookComposerTextBox(page);
     if (!textBox) throw new Error('Facebook group post text box was not found');
     await captureFacebookDebug(page, config, 'composer-open');
 
