@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { runGitHubAction } from '../src/action-runner.mjs';
-import { restoreEncryptedActionState } from '../src/action-state.mjs';
+import {
+  markVerifiedPostingProfile,
+  restoreEncryptedActionState,
+  saveEncryptedActionState,
+} from '../src/action-state.mjs';
 import { FacebookSessionRequiredError } from '../src/facebook.mjs';
 
 const stateKey = 'github-action-state-key-that-is-longer-than-thirty-two-characters';
@@ -55,6 +59,39 @@ test('GitHub Action encrypts a queued payload while posting stays disabled', asy
     });
     const queue = JSON.parse(await readFile(path.join(restoredDir, 'queue.json'), 'utf8'));
     assert.equal(Object.values(queue.jobs)[0].payload.productId, '9301');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('encrypted state preserves the verified Facebook posting profile', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const dataDir = path.join(directory, 'data');
+    const encryptedFile = path.join(directory, 'state', 'facebook-agent.enc');
+    const storageStateFile = path.join(dataDir, 'storage.json');
+    await mkdir(dataDir, { recursive: true });
+    await writeFile(path.join(dataDir, 'queue.json'), '{}');
+    await writeFile(storageStateFile, JSON.stringify({ cookies: [], origins: [] }));
+    await markVerifiedPostingProfile(dataDir, 'Chi Ping');
+    await saveEncryptedActionState({
+      encryptedFile,
+      secret: stateKey,
+      dataDir,
+      storageStateFile,
+    });
+
+    const restoredDir = path.join(directory, 'restored');
+    await restoreEncryptedActionState({
+      encryptedFile,
+      secret: stateKey,
+      dataDir: restoredDir,
+      storageStateFile: path.join(restoredDir, 'storage.json'),
+    });
+    const marker = JSON.parse(
+      await readFile(path.join(restoredDir, 'verified-profile.json'), 'utf8')
+    );
+    assert.deepEqual(marker, { name: 'Chi Ping' });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -160,4 +197,10 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
   assert.match(workflow, /Save encrypted Facebook state/);
   assert.match(workflow, /always\(\) && hashFiles\('\.facebook-state\/facebook-agent\.enc'\) != ''/);
   assert.doesNotMatch(workflow, /FACEBOOK_ACTION_POSTING_ENABLED/);
+
+  const postingWorkflow = await readFile(
+    path.join(process.cwd(), '.github', 'workflows', 'facebook-group-post.yml'),
+    'utf8'
+  );
+  assert.match(postingWorkflow, /FACEBOOK_TRUST_VERIFIED_PROFILE: 'true'/);
 });

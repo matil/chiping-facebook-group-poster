@@ -1,7 +1,11 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
-import { restoreEncryptedActionState, saveEncryptedActionState } from './action-state.mjs';
+import {
+  markVerifiedPostingProfile,
+  restoreEncryptedActionState,
+  saveEncryptedActionState,
+} from './action-state.mjs';
 import {
   findFacebookGroupComposer,
   readLoginCredentials,
@@ -170,6 +174,7 @@ export async function runInteractiveLogin(env = process.env, options = {}) {
           storageStateFile: config.storageStateFile,
         });
         await verifyFacebookGroupAccess(config, { playwright });
+        await markVerifiedPostingProfile(config.dataDir, config.facebookPostingProfileName);
         await store.persist();
         await saveEncryptedActionState({
           encryptedFile,

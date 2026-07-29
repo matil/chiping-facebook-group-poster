@@ -10,6 +10,10 @@ const COMPOSER_SELECTORS = [
   '[role="button"][aria-label*="Create public post"]',
   '[role="button"][aria-label*="כתוב משהו"]',
   '[role="button"][aria-label*="צור פוסט"]',
+  'text=/^Write something(?:\\.\\.\\.|…)?$/',
+  'text=/^Create post$/',
+  'text=/^כתוב משהו(?:\\.\\.\\.|…)?$/',
+  'text=/^צור פוסט$/',
   '[role="button"]:has-text("Write something")',
   '[role="button"]:has-text("Create post")',
   '[role="button"]:has-text("כתוב משהו")',
@@ -88,7 +92,11 @@ export async function configuredPostingProfileIsActive(page, profileName) {
   const composer = await findFacebookGroupComposer(page);
   if (!composer) return false;
 
-  await composer.click();
+  try {
+    await composer.click({ timeout: 10000 });
+  } catch {
+    return false;
+  }
   await page.waitForTimeout(500);
   const dialog = page.locator('[role="dialog"]').first();
   const activeProfile = dialog.getByText(normalizedName, { exact: true }).last();
@@ -96,6 +104,19 @@ export async function configuredPostingProfileIsActive(page, profileName) {
   await page.keyboard.press('Escape').catch(() => {});
   await page.waitForTimeout(250);
   return active;
+}
+
+async function encryptedProfileMarkerMatches(config, profileName) {
+  if (!config.trustVerifiedPostingProfile || !config.storageStateFile) return false;
+  try {
+    const marker = JSON.parse(
+      await readFile(path.join(config.dataDir, 'verified-profile.json'), 'utf8')
+    );
+    return String(marker?.name || '').trim() === profileName
+      && await fileExists(config.storageStateFile);
+  } catch {
+    return false;
+  }
 }
 
 async function fileExists(file) {
@@ -159,6 +180,10 @@ async function selectPostingProfile(page, config) {
   const profileName = String(config.facebookPostingProfileName || '').trim();
   if (!profileName) return;
   if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
+  if (config.trustVerifiedPostingProfile) {
+    if (await encryptedProfileMarkerMatches(config, profileName)) return;
+    throw new FacebookSessionRequiredError('Encrypted Facebook session has no verified posting profile');
+  }
   if (await configuredPostingProfileIsActive(page, profileName)) return;
 
   const accountMenu = await firstVisibleLocator(page, [
@@ -230,6 +255,14 @@ export async function verifyFacebookGroupAccess(config, options = {}) {
     await selectPostingProfile(page, config);
     const composer = await findFacebookGroupComposer(page);
     if (!composer) throw new FacebookSessionRequiredError('Facebook group posting is not available to the configured profile');
+    try {
+      await composer.click({ timeout: 10000 });
+    } catch {
+      throw new FacebookSessionRequiredError('Facebook group composer could not be opened');
+    }
+    const textBox = await firstVisibleLocator(page, TEXTBOX_SELECTORS);
+    if (!textBox) throw new FacebookSessionRequiredError('Facebook group post text box is not available');
+    await page.keyboard.press('Escape').catch(() => {});
     return { groupUrl: config.groupUrl };
   } finally {
     if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
