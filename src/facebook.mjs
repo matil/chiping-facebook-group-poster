@@ -419,7 +419,7 @@ async function downloadImage(imageUrl, fetchImpl = fetch) {
   return { bytes, mimeType, filename: `chiping-deal.${extension}` };
 }
 
-export async function attachFacebookComposerImage(page, image) {
+export async function attachFacebookComposerImage(page, image, options = {}) {
   const dialog = page.locator('[role="dialog"]').last();
   const previewImages = dialog.locator('img');
   const initialPreviewCount = await previewImages.count();
@@ -456,6 +456,13 @@ export async function attachFacebookComposerImage(page, image) {
     });
   }
 
+  await page.waitForTimeout(1500);
+  if (typeof options.onFileSelected === 'function') {
+    await options.onFileSelected({
+      initialPreviewCount,
+      currentPreviewCount: await previewImages.count(),
+    });
+  }
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
     if (await previewImages.count() > initialPreviewCount) return;
@@ -578,9 +585,15 @@ export async function postFacebookGroupJob(job, config, options = {}) {
 
     const textBox = await firstVisibleLocator(page, TEXTBOX_SELECTORS);
     if (!textBox) throw new Error('Facebook group post text box was not found');
+    await captureFacebookDebug(page, config, 'composer-open');
 
     const image = await downloadImage(job.payload.imageUrl, fetchImpl);
-    await attachFacebookComposerImage(page, image);
+    await attachFacebookComposerImage(page, image, {
+      onFileSelected: async (metadata) => {
+        await captureFacebookDebug(page, config, 'image-selected', metadata);
+      },
+    });
+    await captureFacebookDebug(page, config, 'image-attached');
     await fillFacebookComposerText(page, textBox, String(job.payload.message));
     if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
 
