@@ -70,6 +70,8 @@ jobs:
         env:
           DISPLAY: :99
           FACEBOOK_VNC_PASSWORD: ${{ secrets.FACEBOOK_VNC_PASSWORD }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
@@ -109,10 +111,34 @@ jobs:
             sleep 1
           done
           test -n "$remote_url"
-          remote_host="${remote_url#https://}"
-          browser_url="${remote_url}/vnc.html?autoconnect=true&resize=scale"
+          proxy_dir="$RUNNER_TEMP/facebook-remote-proxy"
+          mkdir -p "$proxy_dir"
+          cp src/remote-login-proxy.mjs "$proxy_dir/_worker.js"
+          REMOTE_UPSTREAM="$remote_url" PROXY_FILE="$proxy_dir/_worker.js" \
+            node --input-type=module <<'NODE'
+          import { readFile, writeFile } from 'node:fs/promises';
+          const upstream = new URL(process.env.REMOTE_UPSTREAM);
+          if (upstream.protocol !== 'https:' || !upstream.hostname.endsWith('.trycloudflare.com')) {
+            throw new Error('Unexpected remote-login upstream');
+          }
+          const file = process.env.PROXY_FILE;
+          const source = await readFile(file, 'utf8');
+          if (!source.includes('__REMOTE_UPSTREAM__')) throw new Error('Proxy placeholder is missing');
+          await writeFile(file, source.replace('__REMOTE_UPSTREAM__', upstream.origin));
+          NODE
+          printf '<!doctype html><title>Chiping remote login</title>\n' > "$proxy_dir/index.html"
+          npx --yes wrangler@4.75.0 pages deploy "$proxy_dir" \
+            --project-name chiping-fb-login \
+            --branch main \
+            --commit-hash "$GITHUB_SHA" \
+            --commit-message "Temporary Facebook login ${GITHUB_RUN_ID}"
+          browser_url="https://fb-login.chiping.co.il/vnc.html?autoconnect=true&resize=scale"
+          for attempt in {1..30}; do
+            curl --fail --silent "$browser_url" >/dev/null && break
+            sleep 1
+          done
+          curl --fail --silent --show-error "$browser_url" >/dev/null
           printf 'remote_url=%s\n' "$browser_url" >> "$GITHUB_OUTPUT"
-          printf 'remote_host=%s\n' "$remote_host" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$browser_url" > "$RUNNER_TEMP/facebook-remote-url.txt"
           printf 'Remote browser URL: %s\n' "$browser_url"
           printf '::notice title=Temporary Facebook browser::%s\n' "$browser_url"
@@ -124,7 +150,7 @@ jobs:
       - name: Publish temporary browser link
         uses: actions/upload-artifact@v4
         with:
-          name: facebook-remote-login-${{ steps.remote.outputs.remote_host }}
+          name: facebook-remote-login-${{ github.run_id }}
           path: ${{ runner.temp }}/facebook-remote-url.txt
           if-no-files-found: error
           retention-days: 1
