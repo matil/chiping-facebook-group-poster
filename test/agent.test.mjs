@@ -13,6 +13,7 @@ import {
   loginIfNeeded,
   normalizeFacebookGroupPostUrl,
   readLoginCredentials,
+  sortFacebookGroupFeedNewest,
 } from '../src/facebook.mjs';
 import {
   advanceRememberedLogin,
@@ -457,6 +458,42 @@ test('current Facebook text-only composer is recognized after scrolling to the t
   assert.equal(await findFacebookGroupComposer(page), composer);
   assert.equal(scrolledToTop, true);
   assert.equal(matchedSelector, '[role="button"]:has-text("Write something")');
+});
+
+test('Facebook group feed is switched from most relevant to recent posts', async () => {
+  let menuOpen = false;
+  let selectedRecent = false;
+  const hidden = { async isVisible() { return false; } };
+  const page = {
+    async waitForTimeout() {},
+    keyboard: { async press() {} },
+    locator(selector) {
+      const visibleMostRelevant = selector.includes('Most relevant');
+      const visibleRecentOption = menuOpen && selector.includes('Recent posts')
+        && !selector.startsWith('[role="button"]');
+      return {
+        first() {
+          if (visibleMostRelevant) {
+            return {
+              async isVisible() { return true; },
+              async click() { menuOpen = true; },
+            };
+          }
+          if (visibleRecentOption) {
+            return {
+              async isVisible() { return true; },
+              async click() { selectedRecent = true; },
+            };
+          }
+          return hidden;
+        },
+      };
+    },
+  };
+
+  assert.equal(await sortFacebookGroupFeedNewest(page), true);
+  assert.equal(menuOpen, true);
+  assert.equal(selectedRecent, true);
 });
 
 test('interactive login accepts the current group composer without an aria-label', async () => {
