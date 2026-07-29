@@ -526,6 +526,15 @@ async function waitForEnabledFacebookControl(page, control, timeoutMs = 45000) {
   throw new Error('Facebook group publish button stayed disabled');
 }
 
+export async function waitForFacebookComposerToClose(page, textBox, timeoutMs = 90000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!await textBox.isVisible().catch(() => false)) return;
+    await page.waitForTimeout(1000);
+  }
+  throw new Error('Facebook group post did not finish publishing');
+}
+
 async function captureFacebookDebug(page, config, name, metadata = null) {
   const directory = String(config.facebookDebugDir || '').trim();
   if (!directory) return;
@@ -643,12 +652,12 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       enabled: await postButton.isEnabled().catch(() => false),
     });
     await postButton.click();
-    await page.waitForTimeout(4000);
+    await page.waitForTimeout(2000);
+    await captureFacebookDebug(page, config, 'posting');
+    await waitForFacebookComposerToClose(page, textBox);
     if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
     await captureFacebookDebug(page, config, 'after-submit');
 
-    const composerStillVisible = await textBox.isVisible().catch(() => false);
-    if (composerStillVisible) throw new Error('Facebook did not confirm the group post');
     const published = await findFacebookGroupPostOnPage(page, {
       groupUrl: config.groupUrl,
       itemUrl: job.payload.itemUrl,

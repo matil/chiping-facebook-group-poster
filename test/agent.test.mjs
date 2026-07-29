@@ -16,6 +16,7 @@ import {
   normalizeFacebookGroupPostUrl,
   readLoginCredentials,
   sortFacebookGroupFeedNewest,
+  waitForFacebookComposerToClose,
 } from '../src/facebook.mjs';
 import {
   advanceRememberedLogin,
@@ -598,6 +599,24 @@ test('Facebook composer text falls back to keyboard input and verifies retention
 
   await fillFacebookComposerText(page, textBox, 'Verified deal text');
   assert.equal(value, 'Verified deal text');
+});
+
+test('Facebook posting waits for the composer to close instead of aborting an upload', async () => {
+  let visibilityChecks = 0;
+  let waits = 0;
+  const textBox = {
+    async isVisible() {
+      visibilityChecks += 1;
+      return visibilityChecks < 3;
+    },
+  };
+  const page = {
+    async waitForTimeout() { waits += 1; },
+  };
+
+  await waitForFacebookComposerToClose(page, textBox, 5000);
+  assert.equal(visibilityChecks, 3);
+  assert.equal(waits, 2);
 });
 
 test('interactive login accepts the current group composer without an aria-label', async () => {
