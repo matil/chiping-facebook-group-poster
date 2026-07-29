@@ -343,11 +343,16 @@ export async function findFacebookGroupPost(config, itemUrl, options = {}) {
     await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
-    return findFacebookGroupPostOnPage(page, {
+    const result = await findFacebookGroupPostOnPage(page, {
       groupUrl: config.groupUrl,
       itemUrl,
       timeoutMs: options.timeoutMs,
+      currentPageOnly: options.currentPageOnly === true,
     });
+    if (options.screenshotPath) {
+      await page.screenshot({ path: options.screenshotPath, fullPage: true }).catch(() => {});
+    }
+    return result;
   } finally {
     if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
     await context.close();

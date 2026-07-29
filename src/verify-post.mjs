@@ -32,7 +32,11 @@ export async function verifyFacebookPost(env = process.env, options = {}) {
   const result = await (options.findPost || findFacebookGroupPost)(
     config,
     `https://www.chiping.co.il/?item=${productId}`,
-    options
+    {
+      ...options,
+      currentPageOnly: /^(?:1|true|yes|on)$/i.test(String(env.FACEBOOK_VERIFY_CURRENT_PAGE_ONLY || '')),
+      screenshotPath: String(env.FACEBOOK_VERIFY_SCREENSHOT_PATH || '').trim() || undefined,
+    }
   );
   await writeOutputs({
     found: result.found === true,
