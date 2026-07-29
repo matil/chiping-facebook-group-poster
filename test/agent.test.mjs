@@ -159,12 +159,12 @@ test('Facebook post verification tolerates Facebook replacing an in-flight docum
           return {
             async isVisible() { return true; },
             async innerText() {
-              return scans === 1 ? 'No matching item yet' : 'https://www.chiping.co.il/?item=9301';
+              return scans <= 2 ? 'No matching item yet' : 'https://www.chiping.co.il/?item=9301';
             },
             locator() {
               return {
                 async evaluateAll() {
-                  return scans === 1
+                  return scans <= 2
                     ? []
                     : ['https://www.facebook.com/groups/chiping/posts/333/'];
                 },
@@ -239,7 +239,7 @@ test('Facebook post verification follows the replacement tab Facebook opens', as
     found: true,
     postUrl: 'https://www.facebook.com/groups/chiping/posts/444/',
   });
-  assert.equal(originalScans, 1);
+  assert.equal(originalScans, 2);
 });
 
 test('posting profile selection is opt-in and read from configuration', () => {
@@ -496,6 +496,38 @@ test('job store is durable and idempotent', async () => {
     const reopened = new JobStore(directory);
     await reopened.init();
     assert.deepEqual(reopened.summary(), { pending: 0, retry: 0, processing: 0, blocked: 0, posted: 1 });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('job store can reset one falsely completed product without touching others', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    const first = await store.enqueue(payload());
+    const second = await store.enqueue({
+      ...payload(),
+      idempotency_key: 'chiping-facebook:v1:9302',
+      productId: '9302',
+      itemUrl: 'https://www.chiping.co.il/?item=9302',
+    });
+    await store.markPosted(first.job.id, 'https://www.facebook.com/groups/chiping/posts/111/');
+    await store.markPosted(second.job.id, 'https://www.facebook.com/groups/chiping/posts/222/');
+
+    assert.equal(await store.resetProduct('9301'), 1);
+    assert.deepEqual(store.summary(), {
+      pending: 1,
+      retry: 0,
+      processing: 0,
+      blocked: 0,
+      posted: 1,
+    });
+    const resetJob = store.state.jobs[first.job.id];
+    assert.equal(resetJob.post_url, null);
+    assert.equal('posted_at' in resetJob, false);
+    assert.equal(store.state.jobs[second.job.id].status, 'posted');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

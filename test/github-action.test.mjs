@@ -172,6 +172,33 @@ test('GitHub Action posts one queued item and respects the daily interval', asyn
   }
 });
 
+test('GitHub Action can reset and repost one falsely completed product', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, { client_payload: { payload: payload() } });
+    env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    await runGitHubAction(env, {
+      postJob: async () => ({
+        postUrl: 'https://www.facebook.com/groups/chiping/posts/111/',
+      }),
+    });
+
+    const resetEnv = await actionEnvironment(directory);
+    resetEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    resetEnv.FACEBOOK_ACTION_RESET_PRODUCT_ID = '9301';
+    const result = await runGitHubAction(resetEnv, {
+      postJob: async () => ({
+        postUrl: 'https://www.facebook.com/groups/chiping/posts/222/',
+      }),
+    });
+    assert.equal(result.outcome, 'posted');
+    assert.equal(result.postUrl, 'https://www.facebook.com/groups/chiping/posts/222/');
+    assert.equal(result.summary.posted, 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('remote login workflow uses protected VNC and encrypts the resulting session', async () => {
   const workflow = await readFile(
     path.join(process.cwd(), '.github', 'workflows', 'facebook-interactive-login.yml'),
@@ -203,6 +230,8 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
     'utf8'
   );
   assert.match(postingWorkflow, /FACEBOOK_TRUST_VERIFIED_PROFILE: 'true'/);
+  assert.match(postingWorkflow, /FACEBOOK_ACTION_RESET_PRODUCT_ID:/);
+  assert.match(postingWorkflow, /Post URL:/);
 
   const verificationWorkflow = await readFile(
     path.join(process.cwd(), '.github', 'workflows', 'facebook-verify-post.yml'),

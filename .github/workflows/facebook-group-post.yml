@@ -17,6 +17,10 @@ on:
         required: false
         type: boolean
         default: false
+      reset_product_id:
+        description: Reset one falsely completed product before processing
+        required: false
+        type: string
 
 permissions:
   actions: write
@@ -89,6 +93,7 @@ jobs:
           FACEBOOK_ACTION_POSTING_ENABLED: ${{ secrets.FACEBOOK_ACTION_POSTING_ENABLED }}
           FACEBOOK_ACTION_RESUME: ${{ inputs.resume_blocked_queue }}
           FACEBOOK_ACTION_VERIFY_GROUP_ACCESS: ${{ inputs.verify_group_access }}
+          FACEBOOK_ACTION_RESET_PRODUCT_ID: ${{ inputs.reset_product_id }}
           FACEBOOK_LOGIN_EMAIL_FILE: ${{ runner.temp }}/chiping-facebook-secrets/email
           FACEBOOK_LOGIN_PASSWORD_FILE: ${{ runner.temp }}/chiping-facebook-secrets/password
           FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}
@@ -112,6 +117,14 @@ jobs:
           VERIFICATION_REASON: ${{ steps.poster.outputs.verification_reason }}
         run: |
           printf 'Facebook access check failed: %s\n' "$VERIFICATION_REASON"
+
+      - name: Report verified Facebook post
+        if: steps.poster.outputs.outcome == 'posted'
+        env:
+          POST_URL: ${{ steps.poster.outputs.post_url }}
+        run: |
+          test -n "$POST_URL"
+          printf 'Post URL: %s\n' "$POST_URL"
 
       - name: Flag a newly blocked queue
         if: steps.poster.outputs.alert == 'true'
