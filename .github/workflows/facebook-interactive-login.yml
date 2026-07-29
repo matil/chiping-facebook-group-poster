@@ -81,12 +81,21 @@ jobs:
             "$RUNNER_TEMP/cloudflared" | sha256sum --check
           chmod 700 "$RUNNER_TEMP/cloudflared"
           Xvfb :99 -screen 0 1365x900x24 -nolisten tcp >"$RUNNER_TEMP/xvfb.log" 2>&1 &
+          for attempt in {1..30}; do
+            test -S /tmp/.X11-unix/X99 && break
+            sleep 0.2
+          done
+          test -S /tmp/.X11-unix/X99
           openbox >"$RUNNER_TEMP/openbox.log" 2>&1 &
           x11vnc -storepasswd "$FACEBOOK_VNC_PASSWORD" "$RUNNER_TEMP/x11vnc.pass" >/dev/null
           x11vnc -display :99 -forever -shared -rfbauth "$RUNNER_TEMP/x11vnc.pass" \
             -localhost >"$RUNNER_TEMP/x11vnc.log" 2>&1 &
           websockify --web /usr/share/novnc 6080 localhost:5900 \
             >"$RUNNER_TEMP/websockify.log" 2>&1 &
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:6080/vnc.html >/dev/null && break
+            sleep 0.2
+          done
           curl --fail --silent --show-error http://127.0.0.1:6080/vnc.html >/dev/null
           "$RUNNER_TEMP/cloudflared" tunnel --no-autoupdate \
             --url http://localhost:6080 >"$RUNNER_TEMP/cloudflared.log" 2>&1 &
