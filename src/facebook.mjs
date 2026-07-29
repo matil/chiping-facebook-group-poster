@@ -86,26 +86,6 @@ async function hasLoginForm(page) {
   return page.locator('input[name="email"], input[type="email"]').first().isVisible().catch(() => false);
 }
 
-export async function configuredPostingProfileIsActive(page, profileName) {
-  const normalizedName = String(profileName || '').trim();
-  if (!normalizedName) return true;
-  const composer = await findFacebookGroupComposer(page);
-  if (!composer) return false;
-
-  try {
-    await composer.click({ timeout: 10000 });
-  } catch {
-    return false;
-  }
-  await page.waitForTimeout(500);
-  const dialog = page.locator('[role="dialog"]').first();
-  const activeProfile = dialog.getByText(normalizedName, { exact: true }).last();
-  const active = await activeProfile.isVisible().catch(() => false);
-  await page.keyboard.press('Escape').catch(() => {});
-  await page.waitForTimeout(250);
-  return active;
-}
-
 async function encryptedProfileMarkerMatches(config, profileName) {
   if (!config.trustVerifiedPostingProfile || !config.storageStateFile) return false;
   try {
@@ -184,7 +164,6 @@ async function selectPostingProfile(page, config) {
     if (await encryptedProfileMarkerMatches(config, profileName)) return;
     throw new FacebookSessionRequiredError('Encrypted Facebook session has no verified posting profile');
   }
-  if (await configuredPostingProfileIsActive(page, profileName)) return;
 
   const accountMenu = await firstVisibleLocator(page, [
     '[aria-label="Your profile"]',
@@ -224,9 +203,6 @@ async function selectPostingProfile(page, config) {
     throw new FacebookSessionRequiredError('Facebook rejected the configured posting profile');
   }
   await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-  if (!await configuredPostingProfileIsActive(page, profileName)) {
-    throw new FacebookSessionRequiredError('Facebook did not activate the configured posting profile');
-  }
 }
 
 async function downloadImage(imageUrl, fetchImpl = fetch) {
