@@ -7,7 +7,9 @@ import { signPayload } from '../src/auth.mjs';
 import { loadConfig, normalizeGroupUrl } from '../src/config.mjs';
 import { createServer } from '../src/server.mjs';
 import {
+  attachFacebookComposerImage,
   FacebookSessionRequiredError,
+  fillFacebookComposerText,
   findFacebookGroupPostOnPage,
   findFacebookGroupComposer,
   loginIfNeeded,
@@ -497,6 +499,70 @@ test('Facebook group feed is switched from most relevant to recent posts', async
   assert.equal(await sortFacebookGroupFeedNewest(page), true);
   assert.equal(menuOpen, true);
   assert.equal(selectedRecent, true);
+});
+
+test('Facebook composer image is attached through its own file chooser', async () => {
+  let previewCount = 1;
+  let selectedFile = null;
+  const image = {
+    filename: 'deal.jpg',
+    mimeType: 'image/jpeg',
+    bytes: Buffer.from('image'),
+  };
+  const previewImages = {
+    async count() { return previewCount; },
+  };
+  const dialog = {
+    locator(selector) {
+      assert.equal(selector, 'img');
+      return previewImages;
+    },
+  };
+  const photoButton = {
+    async isVisible() { return true; },
+    async click() {},
+  };
+  const page = {
+    locator(selector) {
+      if (selector === '[role="dialog"]') {
+        return { last() { return dialog; } };
+      }
+      return { first() { return photoButton; } };
+    },
+    async waitForEvent(event) {
+      assert.equal(event, 'filechooser');
+      return {
+        async setFiles(file) {
+          selectedFile = file;
+          previewCount = 2;
+        },
+      };
+    },
+    async waitForTimeout() {},
+  };
+
+  await attachFacebookComposerImage(page, image);
+  assert.equal(selectedFile.name, 'deal.jpg');
+  assert.equal(selectedFile.mimeType, 'image/jpeg');
+});
+
+test('Facebook composer text falls back to keyboard input and verifies retention', async () => {
+  let value = '';
+  const textBox = {
+    async click() {},
+    async fill() {},
+    async innerText() { return value; },
+  };
+  const page = {
+    async waitForTimeout() {},
+    keyboard: {
+      async press() {},
+      async insertText(text) { value = text; },
+    },
+  };
+
+  await fillFacebookComposerText(page, textBox, 'Verified deal text');
+  assert.equal(value, 'Verified deal text');
 });
 
 test('interactive login accepts the current group composer without an aria-label', async () => {
