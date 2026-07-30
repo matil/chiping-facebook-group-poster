@@ -61,7 +61,7 @@ jobs:
           FACEBOOK_STORAGE_STATE_FILE: ${{ runner.temp }}/chiping-facebook-data/facebook-storage-state.json
           POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
           POSTER_HEADLESS: 'true'
-          FACEBOOK_VERIFY_CURRENT_PAGE_ONLY: 'true'
+          FACEBOOK_VERIFY_CURRENT_PAGE_ONLY: 'false'
           FACEBOOK_VERIFY_SORT_NEWEST: 'true'
           FACEBOOK_VERIFY_MEDIA_FALLBACK: 'true'
           FACEBOOK_VERIFY_SCREENSHOT_PATH: ${{ runner.temp }}/facebook-group-feed.png
