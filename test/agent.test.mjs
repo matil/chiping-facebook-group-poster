@@ -241,6 +241,54 @@ test('Facebook post verification can recover a link card outside role=article co
   });
 });
 
+test('Facebook post verification opens a non-anchor timestamp to recover the permalink', async () => {
+  let currentUrl = 'https://www.facebook.com/groups/chiping';
+  const page = {
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return {
+          async count() { return 0; },
+        };
+      }
+      if (selector === 'body') {
+        return {
+          async evaluate() {
+            return {
+              titleFound: true,
+              hrefs: [],
+              timestampMarked: true,
+              diagnosticLinks: [],
+            };
+          },
+        };
+      }
+      assert.equal(selector, '[data-chiping-post-timestamp-probe="true"]');
+      return {
+        first() {
+          return {
+            async click() {
+              currentUrl = 'https://www.facebook.com/groups/chiping/?multi_permalinks=444555666';
+            },
+          };
+        },
+      };
+    },
+    async waitForTimeout() {},
+    context() {
+      return { pages() { return [page]; } };
+    },
+    url() { return currentUrl; },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostViaLinkCardTitle(
+    page,
+    '\u05e2\u05e8\u05db\u05ea \u05d8\u05d9\u05e4\u05d5\u05d7 \u05dc\u05e9\u05d9\u05e2\u05e8 Pantene Molecular Bond Repair'
+  ), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/444555666/',
+  });
+});
+
 test('Facebook post verification expands collapsed text before matching the item URL', async () => {
   let expanded = false;
   const hidden = { async isVisible() { return false; } };
@@ -763,6 +811,7 @@ test('Facebook publisher uses a clickable link preview instead of uploading a ph
   );
   assert.match(publisher, /validateChipingLinkPreviewMetadata/);
   assert.match(publisher, /waitForFacebookLinkPreview/);
+  assert.match(publisher, /if \(existing\.found\)/);
   assert.doesNotMatch(publisher, /attachFacebookComposerImage/);
   assert.doesNotMatch(publisher, /downloadImage/);
 });

@@ -557,6 +557,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
       }
     };
 
+    let timestampMarked = false;
     const candidates = [...body.querySelectorAll('a, span, div')]
       .filter((node) => hasEveryToken(node.textContent))
       .filter((node) => ![...node.children].some((child) => hasEveryToken(child.textContent)));
@@ -570,11 +571,26 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
         ];
         const hrefs = links.flatMap(valuesForNode);
         recordDiagnosticLinks(hrefs);
+        if (!timestampMarked) {
+          const controls = scope.querySelectorAll('a, [role="link"], button, [role="button"]');
+          for (const control of controls) {
+            const text = normalize(control.textContent);
+            const ariaLabel = normalize(control.getAttribute('aria-label'));
+            const timestampLike = /^(?:just now|\d+\s*(?:m|min|h|hr|d|w))$/i.test(text)
+              || /^\d+\s*(?:\u05d3\u05e7(?:\u05d5\u05ea)?|\u05e9\u05e2(?:\u05d5\u05ea)?|\u05d9\u05de\u05d9\u05dd?)$/u.test(text)
+              || /\b\d+\s+(?:minute|hour|day)s?\b/i.test(ariaLabel);
+            if (!timestampLike) continue;
+            control.setAttribute('data-chiping-post-timestamp-probe', 'true');
+            timestampMarked = true;
+            break;
+          }
+        }
         const postUrl = hrefs.find(isConcretePostUrl);
         if (postUrl) {
           return {
             titleFound: true,
             hrefs: [postUrl],
+            timestampMarked,
             diagnosticLinks: diagnosticLinks.slice(0, 30),
           };
         }
@@ -583,15 +599,32 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
     return {
       titleFound: candidates.length > 0,
       hrefs: [],
+      timestampMarked,
       diagnosticLinks: diagnosticLinks.slice(0, 30),
     };
-  }, titleTokens).catch(() => ({ titleFound: false, hrefs: [], diagnosticLinks: [] }));
-  const domPostUrl = (Array.isArray(domResult?.hrefs) ? domResult.hrefs : [])
+  }, titleTokens).catch(() => ({
+    titleFound: false,
+    hrefs: [],
+    timestampMarked: false,
+    diagnosticLinks: [],
+  }));
+  let domPostUrl = (Array.isArray(domResult?.hrefs) ? domResult.hrefs : [])
     .map(normalizeFacebookGroupPostUrl)
     .find(Boolean) || '';
+  if (!domPostUrl && domResult?.timestampMarked === true) {
+    const timestamp = page.locator('[data-chiping-post-timestamp-probe="true"]').first();
+    await timestamp.click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(1000).catch(() => {});
+    const context = typeof page.context === 'function' ? page.context() : null;
+    const pages = context?.pages?.() || [page];
+    domPostUrl = pages
+      .map((candidate) => normalizeFacebookGroupPostUrl(candidate.url?.()))
+      .find(Boolean) || '';
+  }
   if (diagnosticsEnabled) {
     console.log(`[facebook-verifier] link-card DOM fallback: ${JSON.stringify({
       titleFound: domResult?.titleFound === true,
+      timestampMarked: domResult?.timestampMarked === true,
       postUrl: domPostUrl,
       candidateLinks: domResult?.diagnosticLinks || [],
     })}`);
@@ -1245,6 +1278,9 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       currentPageOnly: true,
     });
     if (existing.postUrl) return { postUrl: existing.postUrl };
+    if (existing.found) {
+      throw new Error('Facebook already contains the exact item post but has not exposed its permalink');
+    }
 
     const composer = await findFacebookGroupComposer(page);
     if (!composer) throw new Error('Facebook group composer was not found');
