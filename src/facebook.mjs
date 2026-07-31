@@ -503,7 +503,74 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
       .find(Boolean) || '';
     return { found: true, postUrl };
   }
-  return { found: false, postUrl: '' };
+
+  const domResult = await page.locator('body').evaluate((body, expectedTokens) => {
+    const normalize = (value) => String(value || '')
+      .normalize('NFKC')
+      .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLocaleLowerCase('he');
+    const hasEveryToken = (value) => {
+      const text = normalize(value);
+      return expectedTokens.every((token) => text.includes(token));
+    };
+    const valuesForNode = (node) => [
+      node?.href,
+      node?.getAttribute?.('href'),
+      node?.getAttribute?.('data-lynx-uri'),
+    ].map((value) => String(value || '')).filter(Boolean);
+    const isConcretePostUrl = (value) => {
+      try {
+        const url = new URL(String(value || ''), 'https://www.facebook.com');
+        if (!['facebook.com', 'www.facebook.com'].includes(url.hostname)) return false;
+        if (/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/\d+\/?$/i.test(url.pathname)) return true;
+        if (/^\/photo(?:\.php)?\/?$/i.test(url.pathname)
+          && /^gm\.\d+$/i.test(String(url.searchParams.get('set') || ''))) {
+          return true;
+        }
+        return /^\/groups\/(?:chiping|\d+)\/?$/i.test(url.pathname)
+          && /^\d+$/.test(String(
+            url.searchParams.get('multi_permalinks')
+            || url.searchParams.get('story_fbid')
+            || ''
+          ));
+      } catch {
+        return false;
+      }
+    };
+
+    const candidates = [...body.querySelectorAll('a, span, div')]
+      .filter((node) => hasEveryToken(node.textContent))
+      .filter((node) => ![...node.children].some((child) => hasEveryToken(child.textContent)));
+    for (const candidate of candidates) {
+      let scope = candidate;
+      for (let depth = 0; scope && depth < 24; depth += 1, scope = scope.parentElement) {
+        if (!normalize(scope.textContent).includes('chiping.co.il')) continue;
+        const links = [
+          ...(scope.matches?.('a[href], [data-lynx-uri]') ? [scope] : []),
+          ...scope.querySelectorAll('a[href], [data-lynx-uri]'),
+        ];
+        const hrefs = links.flatMap(valuesForNode);
+        const postUrl = hrefs.find(isConcretePostUrl);
+        if (postUrl) return { titleFound: true, hrefs: [postUrl] };
+      }
+    }
+    return { titleFound: candidates.length > 0, hrefs: [] };
+  }, titleTokens).catch(() => ({ titleFound: false, hrefs: [] }));
+  const domPostUrl = (Array.isArray(domResult?.hrefs) ? domResult.hrefs : [])
+    .map(normalizeFacebookGroupPostUrl)
+    .find(Boolean) || '';
+  if (diagnosticsEnabled) {
+    console.log(`[facebook-verifier] link-card DOM fallback: ${JSON.stringify({
+      titleFound: domResult?.titleFound === true,
+      postUrl: domPostUrl,
+    })}`);
+  }
+  return {
+    found: domResult?.titleFound === true,
+    postUrl: domPostUrl,
+  };
 }
 
 async function navigateFacebookForVerification(page, destination) {

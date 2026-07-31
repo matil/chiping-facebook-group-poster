@@ -201,6 +201,42 @@ test('Facebook post verification matches the exact Chiping link-card title when 
   });
 });
 
+test('Facebook post verification can recover a link card outside role=article containers', async () => {
+  const title = '\u05e2\u05e8\u05db\u05ea \u05d8\u05d9\u05e4\u05d5\u05d7 \u05dc\u05e9\u05d9\u05e2\u05e8 Pantene Molecular Bond Repair';
+  const page = {
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return {
+          async count() { return 0; },
+        };
+      }
+      assert.equal(selector, 'body');
+      return {
+        async evaluate(_callback, tokens) {
+          assert.deepEqual(tokens, [
+            '\u05e2\u05e8\u05db\u05ea',
+            '\u05d8\u05d9\u05e4\u05d5\u05d7',
+            '\u05dc\u05e9\u05d9\u05e2\u05e8',
+            'pantene',
+            'molecular',
+            'bond',
+            'repair',
+          ]);
+          return {
+            titleFound: true,
+            hrefs: ['https://www.facebook.com/groups/chiping/?multi_permalinks=333444555'],
+          };
+        },
+      };
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostViaLinkCardTitle(page, title), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/333444555/',
+  });
+});
+
 test('Facebook post verification expands collapsed text before matching the item URL', async () => {
   let expanded = false;
   const hidden = { async isVisible() { return false; } };
