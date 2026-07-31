@@ -1320,7 +1320,7 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
         return {
           async evaluateAll() {
             return previewReady
-              ? [`https://l.facebook.com/l.php?u=${encodeURIComponent(itemUrl)}`]
+              ? ['https://www.facebook.com/groups/chiping#?preview-card']
               : [];
           },
         };
@@ -1369,7 +1369,8 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
   assert.equal(value, cleanMessage);
   assert.equal(previewReady, true);
   assert.equal(result.visibleUrlRemoved, true);
-  assert.equal(result.hasTargetAnchor, true);
+  assert.equal(result.hasTargetAnchor, false);
+  assert.equal(result.hostOccurrences, 1);
 });
 
 test('Facebook posting waits for the composer to close instead of aborting an upload', async () => {

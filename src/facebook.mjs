@@ -1157,7 +1157,7 @@ export async function waitForFacebookLinkPreview(
       hrefs: hrefs.slice(0, 20),
       visualMetrics: visualMetrics.slice(0, 30),
     };
-    if (hasLargePreviewVisual && (hasTargetAnchor || hostOccurrences >= 2)) {
+    if (hasLargePreviewVisual && (hasTargetAnchor || hostOccurrences >= 1)) {
       return { hasTargetAnchor, hostOccurrences, visualMetrics };
     }
     await page.waitForTimeout(500);
