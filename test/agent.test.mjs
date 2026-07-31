@@ -47,6 +47,23 @@ function payload(overrides = {}) {
   };
 }
 
+function couponPayload(overrides = {}) {
+  const fingerprint = 'b'.repeat(32);
+  return {
+    idempotency_key: `chiping-facebook:coupons:v1:${fingerprint}`,
+    contentId: fingerprint,
+    site: 'chiping',
+    channel: 'facebook',
+    language: 'he',
+    post_type: 'coupon_announcement',
+    posting_policy: 'coupon-announcement',
+    message: '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd \u05dc-AliExpress',
+    imageUrl: 'https://www.chiping.co.il/images/fb-coupons-aliexpress.png',
+    itemUrl: 'https://www.chiping.co.il/?coupons=1',
+    ...overrides,
+  };
+}
+
 test('Chiping group URL is fixed to the intended Facebook group', () => {
   assert.equal(normalizeGroupUrl('https://www.facebook.com/groups/chiping/'), 'https://www.facebook.com/groups/chiping');
   assert.throws(() => normalizeGroupUrl('https://www.facebook.com/groups/other'), /Chiping Facebook group/);
@@ -136,6 +153,46 @@ test('Facebook post verification requires the exact item link and returns its pe
     postUrl: 'https://www.facebook.com/groups/chiping/posts/222/',
   });
   assert.equal(navigations.length, 0);
+});
+
+test('Facebook post verification matches the exact coupon-popup link', async () => {
+  const articles = [{
+    text: '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd',
+    hrefs: [
+      'https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.chiping.co.il%2F%3Fcoupons%3D1',
+      'https://www.facebook.com/groups/chiping/posts/444/',
+    ],
+  }];
+  const page = {
+    async waitForTimeout() {},
+    locator(selector) {
+      assert.equal(selector, '[role="article"]');
+      return {
+        async count() { return articles.length; },
+        nth(index) {
+          const article = articles[index];
+          return {
+            async isVisible() { return true; },
+            async innerText() { return article.text; },
+            locator(innerSelector) {
+              if (innerSelector.includes('role="button"')) return { async count() { return 0; } };
+              return { async evaluateAll() { return article.hrefs; } };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostOnPage(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?coupons=1',
+    timeoutMs: 5000,
+    currentPageOnly: true,
+  }), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/444/',
+  });
 });
 
 test('Facebook post verification associates a tracked Chiping link with its closest feed permalink', async () => {
@@ -1316,6 +1373,28 @@ test('job store prioritizes Amazon Deals posts over curated backlog', async () =
 
     assert.equal(store.peekNext().product_id, '9302');
     assert.equal((await store.claimNext()).product_id, '9302');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('job store prioritizes a coupon announcement over product backlogs', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    await store.enqueue(payload());
+    await store.enqueue(payload({
+      posting_policy: 'amazon-deals-all',
+      idempotency_key: 'chiping-facebook:v1:9302',
+      productId: '9302',
+      itemUrl: 'https://www.chiping.co.il/?item=9302',
+    }));
+    await store.enqueue(couponPayload());
+
+    const next = store.peekNext();
+    assert.equal(next.payload.post_type, 'coupon_announcement');
+    assert.equal(next.content_id, 'b'.repeat(32));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

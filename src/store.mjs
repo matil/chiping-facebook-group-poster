@@ -12,9 +12,9 @@ function dueAt(job) {
 }
 
 function postingPriority(job) {
-  return String(job?.payload?.posting_policy || '').trim().toLowerCase() === 'amazon-deals-all'
-    ? 0
-    : 1;
+  const policy = String(job?.payload?.posting_policy || '').trim().toLowerCase();
+  if (policy === 'coupon-announcement') return -1;
+  return policy === 'amazon-deals-all' ? 0 : 1;
 }
 
 export class JobStore {
@@ -68,6 +68,7 @@ export class JobStore {
       id: randomUUID(),
       idempotency_key: idempotencyKey,
       product_id: String(payload.productId || '').trim(),
+      content_id: String(payload.contentId || payload.productId || '').trim(),
       payload,
       status: 'pending',
       attempts: 0,

@@ -5,6 +5,7 @@ import { isValidSignature } from './auth.mjs';
 import { loadConfig, productionReady, publicConfig } from './config.mjs';
 import { JobRunner } from './runner.mjs';
 import { JobStore } from './store.mjs';
+import { validChipingFacebookPayload } from './payload.mjs';
 
 const MAX_BODY_BYTES = 128 * 1024;
 
@@ -34,23 +35,6 @@ function isAuthorized(request, rawBody, config) {
     rawBody,
     request.headers['x-chiping-signature']
   );
-}
-
-function validPayload(payload) {
-  const key = String(payload?.idempotency_key || payload?.idempotencyKey || '');
-  const postingPolicy = String(payload?.posting_policy || '').trim().toLowerCase();
-  return payload?.site === 'chiping'
-    && payload?.channel === 'facebook'
-    && payload?.language === 'he'
-    && /^chiping-facebook:v1:\d+$/.test(key)
-    && /^\d+$/.test(String(payload?.productId || ''))
-    && typeof payload?.message === 'string'
-    && payload.message.trim().length > 0
-    && typeof payload?.imageUrl === 'string'
-    && payload.imageUrl.startsWith('https://')
-    && typeof payload?.itemUrl === 'string'
-    && /^https:\/\/www\.chiping\.co\.il\/\?item=\d+/.test(payload.itemUrl)
-    && (!postingPolicy || ['curated', 'amazon-deals-all'].includes(postingPolicy));
 }
 
 export async function createServer(options = {}) {
@@ -96,7 +80,7 @@ export async function createServer(options = {}) {
     } catch {
       return sendJson(response, 400, { ok: false, error: 'invalid_json' });
     }
-    if (!validPayload(payload)) return sendJson(response, 400, { ok: false, error: 'invalid_payload' });
+    if (!validChipingFacebookPayload(payload)) return sendJson(response, 400, { ok: false, error: 'invalid_payload' });
 
     const result = await store.enqueue(payload);
     void runner.kick();

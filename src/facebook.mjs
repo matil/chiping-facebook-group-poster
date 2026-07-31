@@ -1,5 +1,9 @@
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  assertValidChipingFacebookPayload,
+  chipingFacebookTarget,
+} from './payload.mjs';
 
 const LOGIN_URL_RE = /\/login/i;
 const SECURITY_URL_RE = /\/(?:checkpoint|recover|two_step_verification|security)/i;
@@ -315,12 +319,28 @@ function referencesExactChipingItem(value, productId) {
   });
 }
 
+function referencesExactChipingTarget(value, target) {
+  if (target?.type === 'item') return referencesExactChipingItem(value, target.value);
+  if (target?.type !== 'coupons') return false;
+  const decoded = decodedUrl(value);
+  const references = [
+    'www.chiping.co.il/?coupons=1',
+    'chiping.co.il/?coupons=1',
+  ];
+  return references.some((reference) => {
+    let offset = decoded.indexOf(reference);
+    while (offset >= 0) {
+      const nextCharacter = decoded[offset + reference.length] || '';
+      if (!nextCharacter || /[&#\s"'<>]/.test(nextCharacter)) return true;
+      offset = decoded.indexOf(reference, offset + reference.length);
+    }
+    return false;
+  });
+}
+
 async function scanFacebookGroupArticles(page, itemUrl) {
-  const target = new URL(String(itemUrl || ''));
-  const productId = target.searchParams.get('item');
-  if (target.hostname !== 'www.chiping.co.il' || !/^\d+$/.test(String(productId || ''))) {
-    throw new Error('Facebook post verification requires a Chiping item URL');
-  }
+  const target = chipingFacebookTarget(itemUrl);
+  if (!target) throw new Error('Facebook post verification requires a supported Chiping URL');
 
   const articles = page.locator('[role="article"]');
   const count = Math.min(await articles.count(), 50);
@@ -350,7 +370,7 @@ async function scanFacebookGroupArticles(page, itemUrl) {
       article.locator('a[href]').evaluateAll((links) => links.map((link) => link.href)).catch(() => []),
     ]);
     const matchesItem = [text, ...hrefs]
-      .some((value) => referencesExactChipingItem(value, productId));
+      .some((value) => referencesExactChipingTarget(value, target));
     if (!matchesItem) continue;
 
     for (const href of hrefs) {
@@ -363,15 +383,15 @@ async function scanFacebookGroupArticles(page, itemUrl) {
 }
 
 export async function findFacebookGroupPostViaTargetAnchor(page, itemUrl) {
-  const target = new URL(String(itemUrl || ''));
-  const productId = target.searchParams.get('item');
-  if (target.hostname !== 'www.chiping.co.il' || !/^\d+$/.test(String(productId || ''))) {
-    throw new Error('Facebook post verification requires a Chiping item URL');
-  }
+  const target = chipingFacebookTarget(itemUrl);
+  if (!target) throw new Error('Facebook post verification requires a supported Chiping URL');
 
   let result = { targetFound: false, hrefs: [] };
   try {
-    result = await page.locator('a[href], [data-lynx-uri]').evaluateAll((nodes, expectedProductId) => {
+    result = await page.locator('a[href], [data-lynx-uri]').evaluateAll((nodes, expectedTargetValue) => {
+    const expectedTarget = typeof expectedTargetValue === 'string'
+      ? { type: 'item', value: expectedTargetValue }
+      : expectedTargetValue;
     const decode = (value) => {
       let output = String(value || '');
       for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -387,10 +407,15 @@ export async function findFacebookGroupPostViaTargetAnchor(page, itemUrl) {
     };
     const referencesItem = (value) => {
       const decoded = decode(value);
-      const references = [
-        `www.chiping.co.il/?item=${expectedProductId}`,
-        `chiping.co.il/?item=${expectedProductId}`,
-      ];
+      const references = expectedTarget.type === 'item'
+        ? [
+            `www.chiping.co.il/?item=${expectedTarget.value}`,
+            `chiping.co.il/?item=${expectedTarget.value}`,
+          ]
+        : [
+            'www.chiping.co.il/?coupons=1',
+            'chiping.co.il/?coupons=1',
+          ];
       return references.some((reference) => {
         const offset = decoded.indexOf(reference);
         if (offset < 0) return false;
@@ -440,7 +465,7 @@ export async function findFacebookGroupPostViaTargetAnchor(page, itemUrl) {
       }
     }
     return { targetFound, hrefs: [] };
-    }, productId);
+    }, target.type === 'item' ? target.value : target);
   } catch {
     return { found: false, postUrl: '' };
   }
@@ -729,10 +754,11 @@ export async function findFacebookGroupPostOnPage(page, {
   currentPageOnly = false,
 } = {}) {
   const waitBudgetMs = Math.max(5000, Math.min(Number(timeoutMs) || 30000, 60000));
-  const target = new URL(String(itemUrl || ''));
-  const productId = target.searchParams.get('item');
+  const target = chipingFacebookTarget(itemUrl);
+  if (!target) throw new Error('Facebook post verification requires a supported Chiping URL');
+  const searchTerm = target.type === 'item' ? target.value : 'קופוני AliExpress';
   const destinations = [
-    `${groupUrl}/search/?q=${encodeURIComponent(productId || itemUrl)}`,
+    `${groupUrl}/search/?q=${encodeURIComponent(searchTerm)}`,
     `${groupUrl}?sorting_setting=CHRONOLOGICAL`,
   ];
   const attemptsPerDestination = Math.max(
@@ -819,9 +845,8 @@ export async function findFacebookGroupPostViaMedia(page, itemUrl, {
         candidatePage.locator('body').innerText().catch(() => ''),
         candidatePage.locator('a[href]').evaluateAll((links) => links.map((link) => link.href)).catch(() => []),
       ]);
-      const target = new URL(String(itemUrl || ''));
-      const productId = target.searchParams.get('item');
-      if ([bodyText, ...hrefs].some((value) => referencesExactChipingItem(value, productId))) {
+      const target = chipingFacebookTarget(itemUrl);
+      if (target && [bodyText, ...hrefs].some((value) => referencesExactChipingTarget(value, target))) {
         const groupPostUrl = hrefs.map(normalizeFacebookGroupPostUrl).find(Boolean);
         return { found: true, postUrl: groupPostUrl || mediaUrl };
       }
@@ -1108,8 +1133,13 @@ export async function waitForFacebookLinkPreview(
     const hasTargetAnchor = hrefs.some((href) => {
       try {
         const candidate = new URL(String(href || ''));
-        return candidate.hostname.replace(/^www\./i, '').toLowerCase() === host
-          && candidate.searchParams.get('item') === target.searchParams.get('item');
+        if (candidate.hostname.replace(/^www\./i, '').toLowerCase() !== host) return false;
+        const targetItem = target.searchParams.get('item');
+        if (targetItem) return candidate.searchParams.get('item') === targetItem;
+        if (target.searchParams.get('coupons') === '1') {
+          return candidate.searchParams.get('coupons') === '1';
+        }
+        return candidate.pathname === target.pathname;
       } catch {
         return false;
       }
@@ -1237,19 +1267,7 @@ export async function verifyFacebookGroupAccess(config, options = {}) {
 }
 
 function validatePayload(payload) {
-  if (payload?.site !== 'chiping' || payload?.channel !== 'facebook' || payload?.language !== 'he') {
-    throw new Error('Unexpected social payload');
-  }
-  if (!/^chiping-facebook:v1:\d+$/.test(String(payload?.idempotency_key || payload?.idempotencyKey || ''))) {
-    throw new Error('Invalid idempotency key');
-  }
-  if (!String(payload?.message || '').trim() || !String(payload?.imageUrl || '').trim()) {
-    throw new Error('Payload is missing post text or image');
-  }
-  const itemUrl = new URL(String(payload.itemUrl || ''));
-  if (itemUrl.protocol !== 'https:' || itemUrl.hostname !== 'www.chiping.co.il') {
-    throw new Error('Payload item URL must target Chiping');
-  }
+  assertValidChipingFacebookPayload(payload);
 }
 
 export async function previewFacebookGroupLinkJob(payload, config, options = {}) {

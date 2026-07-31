@@ -28,6 +28,23 @@ function payload(overrides = {}) {
   };
 }
 
+function couponPayload(overrides = {}) {
+  const fingerprint = 'a'.repeat(32);
+  return {
+    idempotency_key: `chiping-facebook:coupons:v1:${fingerprint}`,
+    contentId: fingerprint,
+    site: 'chiping',
+    channel: 'facebook',
+    language: 'he',
+    post_type: 'coupon_announcement',
+    posting_policy: 'coupon-announcement',
+    message: '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd \u05dc-AliExpress',
+    imageUrl: 'https://www.chiping.co.il/images/fb-coupons-aliexpress.png',
+    itemUrl: 'https://www.chiping.co.il/?coupons=1',
+    ...overrides,
+  };
+}
+
 async function actionEnvironment(directory, event = null) {
   const eventFile = path.join(directory, 'event.json');
   if (event) await writeFile(eventFile, JSON.stringify(event));
@@ -103,6 +120,20 @@ test('GitHub Action ignores malformed repository-dispatch payloads', async () =>
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
   try {
     const env = await actionEnvironment(directory, { client_payload: {} });
+    const result = await runGitHubAction(env);
+    assert.equal(result.outcome, 'invalid_payload');
+    assert.equal(result.stateChanged, false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('GitHub Action rejects coupon announcements with a non-popup destination', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, {
+      client_payload: { payload: couponPayload({ itemUrl: 'https://www.chiping.co.il/' }) },
+    });
     const result = await runGitHubAction(env);
     assert.equal(result.outcome, 'invalid_payload');
     assert.equal(result.stateChanged, false);
@@ -217,6 +248,30 @@ test('Amazon Deals Facebook jobs use a five-minute interval instead of curated d
 
     assert.equal(second.outcome, 'posted');
     assert.deepEqual(sent, ['9301', '9302']);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('coupon announcements post through the popup link on the fast interval', async () => {
+  assert.equal(postIntervalMsForJob({ payload: couponPayload() }), 5 * 60 * 1000);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, {
+      client_payload: { payload: couponPayload() },
+    });
+    env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    let received = null;
+    const result = await runGitHubAction(env, {
+      postJob: async (job) => {
+        received = job.payload;
+        return { postUrl: 'https://www.facebook.com/groups/chiping/posts/333/' };
+      },
+    });
+
+    assert.equal(result.outcome, 'posted');
+    assert.equal(received.itemUrl, 'https://www.chiping.co.il/?coupons=1');
+    assert.equal(received.productId, undefined);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

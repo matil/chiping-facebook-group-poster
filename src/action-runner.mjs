@@ -5,10 +5,14 @@ import { FacebookSessionRequiredError, postFacebookGroupJob, verifyFacebookGroup
 import { loadConfig } from './config.mjs';
 import { restoreEncryptedActionState, saveEncryptedActionState } from './action-state.mjs';
 import { JobStore } from './store.mjs';
+import {
+  AMAZON_DEALS_POSTING_POLICY,
+  COUPON_ANNOUNCEMENT_POSTING_POLICY,
+  validChipingFacebookPayload,
+} from './payload.mjs';
 
 const CURATED_POST_INTERVAL_MS = 20 * 60 * 60 * 1000;
 const AMAZON_DEALS_POST_INTERVAL_MS = 5 * 60 * 1000;
-const AMAZON_DEALS_POSTING_POLICY = 'amazon-deals-all';
 
 function enabled(value) {
   return /^(?:1|true|yes|on)$/i.test(String(value || '').trim());
@@ -33,23 +37,6 @@ async function readEventPayload(file) {
   }
 }
 
-function validPayload(payload) {
-  const key = String(payload?.idempotency_key || payload?.idempotencyKey || '');
-  const postingPolicy = String(payload?.posting_policy || '').trim().toLowerCase();
-  return payload?.site === 'chiping'
-    && payload?.channel === 'facebook'
-    && payload?.language === 'he'
-    && /^chiping-facebook:v1:\d+$/.test(key)
-    && /^\d+$/.test(String(payload?.productId || ''))
-    && typeof payload?.message === 'string'
-    && payload.message.trim().length > 0
-    && typeof payload?.imageUrl === 'string'
-    && payload.imageUrl.startsWith('https://')
-    && typeof payload?.itemUrl === 'string'
-    && /^https:\/\/www\.chiping\.co\.il\/\?item=\d+/.test(payload.itemUrl)
-    && (!postingPolicy || ['curated', AMAZON_DEALS_POSTING_POLICY].includes(postingPolicy));
-}
-
 function validFacebookPostUrl(value) {
   try {
     const url = new URL(String(value || ''));
@@ -68,7 +55,7 @@ function postingPolicy(job) {
 }
 
 export function postIntervalMsForJob(job = null) {
-  return postingPolicy(job) === AMAZON_DEALS_POSTING_POLICY
+  return [AMAZON_DEALS_POSTING_POLICY, COUPON_ANNOUNCEMENT_POSTING_POLICY].includes(postingPolicy(job))
     ? AMAZON_DEALS_POST_INTERVAL_MS
     : CURATED_POST_INTERVAL_MS;
 }
@@ -83,12 +70,12 @@ function lastPostedAt(store, predicate = null) {
 function nextEligiblePostAt(store, nextJob) {
   const latestPostAt = lastPostedAt(store);
   if (!nextJob) return latestPostAt + CURATED_POST_INTERVAL_MS;
-  if (postingPolicy(nextJob) === AMAZON_DEALS_POSTING_POLICY) {
+  if ([AMAZON_DEALS_POSTING_POLICY, COUPON_ANNOUNCEMENT_POSTING_POLICY].includes(postingPolicy(nextJob))) {
     return latestPostAt + AMAZON_DEALS_POST_INTERVAL_MS;
   }
   const latestCuratedPostAt = lastPostedAt(
     store,
-    (job) => postingPolicy(job) !== AMAZON_DEALS_POSTING_POLICY
+    (job) => ![AMAZON_DEALS_POSTING_POLICY, COUPON_ANNOUNCEMENT_POSTING_POLICY].includes(postingPolicy(job))
   );
   return Math.max(
     latestPostAt + AMAZON_DEALS_POST_INTERVAL_MS,
@@ -136,7 +123,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
   let postUrl = '';
   let confirmed = false;
   const payload = await readEventPayload(String(env.FACEBOOK_EVENT_PATH || '').trim());
-  if (payload && validPayload(payload)) {
+  if (payload && validChipingFacebookPayload(payload)) {
     const queued = await store.enqueue(payload);
     changed ||= queued.accepted;
     outcome = queued.deduplicated ? 'deduplicated' : 'queued';
