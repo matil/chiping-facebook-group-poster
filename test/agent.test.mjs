@@ -18,6 +18,7 @@ import {
   findFacebookGroupComposer,
   loginIfNeeded,
   normalizeFacebookGroupPostUrl,
+  prepareFacebookComposerLinkPreview,
   readLoginCredentials,
   sortFacebookGroupFeedNewest,
   validateChipingLinkPreviewMetadata,
@@ -917,7 +918,7 @@ test('Facebook publisher uses a clickable link preview instead of uploading a ph
     source.length
   );
   assert.match(publisher, /validateChipingLinkPreviewMetadata/);
-  assert.match(publisher, /waitForFacebookLinkPreview/);
+  assert.match(publisher, /prepareFacebookComposerLinkPreview/);
   assert.match(publisher, /if \(existing\.found\)/);
   assert.doesNotMatch(publisher, /attachFacebookComposerImage/);
   assert.doesNotMatch(publisher, /downloadImage/);
@@ -1296,6 +1297,79 @@ test('Facebook composer text falls back to keyboard input and verifies retention
 
   await fillFacebookComposerText(page, textBox, 'Verified deal text');
   assert.equal(value, 'Verified deal text');
+});
+
+test('Facebook composer stages the item URL, keeps its card, and removes the visible URL', async () => {
+  const itemUrl = 'https://www.chiping.co.il/?coupons=1';
+  const cleanMessage = '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd \u05dc-AliExpress';
+  let value = '';
+  let previewReady = false;
+  const fills = [];
+  const visualSelector = [
+    'a[href]',
+    '[role="link"]',
+    'img',
+    '[role="img"]',
+    '[data-visualcompletion="media-vc-image"]',
+    '[style*="background-image"]',
+  ].join(', ');
+  const dialog = {
+    async innerText() { return previewReady ? `${value}\nCHIPING.CO.IL` : value; },
+    locator(selector) {
+      if (selector === 'a[href]') {
+        return {
+          async evaluateAll() {
+            return previewReady
+              ? [`https://l.facebook.com/l.php?u=${encodeURIComponent(itemUrl)}`]
+              : [];
+          },
+        };
+      }
+      if (selector === visualSelector) {
+        return {
+          async evaluateAll() {
+            return previewReady
+              ? [{ width: 500, height: 262, visible: true, tagName: 'A', role: 'link' }]
+              : [];
+          },
+        };
+      }
+      throw new Error(`Unexpected selector: ${selector}`);
+    },
+  };
+  const textBox = {
+    async click() {},
+    async fill(text) {
+      value = text;
+      fills.push(text);
+      if (text.includes(itemUrl)) previewReady = true;
+    },
+    async innerText() { return value; },
+    locator(selector) {
+      assert.equal(selector, 'xpath=ancestor::*[@role="dialog"][1]');
+      return dialog;
+    },
+  };
+  const page = {
+    async waitForTimeout() {},
+    keyboard: {
+      async press() {},
+      async insertText(text) { value = text; },
+    },
+  };
+
+  const result = await prepareFacebookComposerLinkPreview(
+    page,
+    textBox,
+    `${cleanMessage}\n\ud83d\udd17 ${itemUrl}`,
+    itemUrl
+  );
+
+  assert.deepEqual(fills, [`${cleanMessage}\n\n${itemUrl}`, cleanMessage]);
+  assert.equal(value, cleanMessage);
+  assert.equal(previewReady, true);
+  assert.equal(result.visibleUrlRemoved, true);
+  assert.equal(result.hasTargetAnchor, true);
 });
 
 test('Facebook posting waits for the composer to close instead of aborting an upload', async () => {

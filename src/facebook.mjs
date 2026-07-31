@@ -1092,6 +1092,20 @@ export async function fillFacebookComposerText(page, textBox, message) {
   }
 }
 
+function cleanFacebookComposerMessage(message, itemUrl) {
+  const url = String(itemUrl || '').trim();
+  let cleaned = String(message || '').replace(/\r\n?/g, '\n');
+  if (url) {
+    cleaned = cleaned.split(url).join('');
+  }
+  return cleaned
+    .split('\n')
+    .map((line) => line.replace(/^\s*\u{1f517}\ufe0f?\s*$/u, '').trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export async function waitForFacebookLinkPreview(
   page,
   itemUrl,
@@ -1099,6 +1113,8 @@ export async function waitForFacebookLinkPreview(
   composerTextBox = null
 ) {
   const target = new URL(String(itemUrl || ''));
+  const chipingTarget = chipingFacebookTarget(itemUrl);
+  if (!chipingTarget) throw new Error('Facebook link preview requires a supported Chiping URL');
   const host = target.hostname.replace(/^www\./i, '').toLowerCase();
   const dialog = composerTextBox?.locator
     ? composerTextBox.locator('xpath=ancestor::*[@role="dialog"][1]')
@@ -1130,20 +1146,7 @@ export async function waitForFacebookLinkPreview(
         })
       )).catch(() => []),
     ]);
-    const hasTargetAnchor = hrefs.some((href) => {
-      try {
-        const candidate = new URL(String(href || ''));
-        if (candidate.hostname.replace(/^www\./i, '').toLowerCase() !== host) return false;
-        const targetItem = target.searchParams.get('item');
-        if (targetItem) return candidate.searchParams.get('item') === targetItem;
-        if (target.searchParams.get('coupons') === '1') {
-          return candidate.searchParams.get('coupons') === '1';
-        }
-        return candidate.pathname === target.pathname;
-      } catch {
-        return false;
-      }
-    });
+    const hasTargetAnchor = hrefs.some((href) => referencesExactChipingTarget(href, chipingTarget));
     const hostOccurrences = String(dialogText || '').toLowerCase().split(host).length - 1;
     const hasLargePreviewVisual = visualMetrics.some((metric) => (
       metric.visible && metric.width >= 180 && metric.height >= 120
@@ -1202,6 +1205,45 @@ export async function waitForFacebookLinkPreview(
     cardCandidates,
   };
   throw error;
+}
+
+export async function prepareFacebookComposerLinkPreview(
+  page,
+  textBox,
+  message,
+  itemUrl,
+  timeoutMs = 30000
+) {
+  const cleanMessage = cleanFacebookComposerMessage(message, itemUrl);
+  if (!cleanMessage) throw new Error('Facebook post text is empty after removing the preview URL');
+
+  await fillFacebookComposerText(page, textBox, `${cleanMessage}\n\n${itemUrl}`);
+  const stagedPreview = await waitForFacebookLinkPreview(
+    page,
+    itemUrl,
+    timeoutMs,
+    textBox
+  );
+
+  await fillFacebookComposerText(page, textBox, cleanMessage);
+  await page.waitForTimeout(500);
+  const visibleText = String(await textBox.innerText().catch(() => ''));
+  const target = chipingFacebookTarget(itemUrl);
+  if (!target || referencesExactChipingTarget(visibleText, target)) {
+    throw new Error('Facebook composer retained the visible Chiping URL');
+  }
+
+  const retainedPreview = await waitForFacebookLinkPreview(
+    page,
+    itemUrl,
+    Math.min(Math.max(5000, Number(timeoutMs) || 30000), 10000),
+    textBox
+  );
+  return {
+    ...retainedPreview,
+    stagedPreview,
+    visibleUrlRemoved: true,
+  };
 }
 
 async function waitForEnabledFacebookControl(page, control, timeoutMs = 45000) {
@@ -1292,12 +1334,12 @@ export async function previewFacebookGroupLinkJob(payload, config, options = {})
     try {
       const textBox = await findFacebookComposerTextBox(page);
       if (!textBox) throw new Error('Facebook group post text box was not found');
-      await fillFacebookComposerText(page, textBox, String(payload.message));
-      const linkPreview = await waitForFacebookLinkPreview(
+      const linkPreview = await prepareFacebookComposerLinkPreview(
         page,
+        textBox,
+        String(payload.message),
         payload.itemUrl,
-        30000,
-        textBox
+        30000
       );
       await captureFacebookDebug(page, config, 'link-preview-dry-run', {
         previewMetadata,
@@ -1367,19 +1409,23 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       fetchImpl
     );
     await captureFacebookDebug(page, config, 'link-metadata-verified', previewMetadata);
+    let linkPreview;
     try {
-      await fillFacebookComposerText(page, textBox, String(job.payload.message));
+      linkPreview = await prepareFacebookComposerLinkPreview(
+        page,
+        textBox,
+        String(job.payload.message),
+        job.payload.itemUrl,
+        30000
+      );
     } catch (error) {
-      await captureFacebookDebug(page, config, 'text-entry-failed');
+      await captureFacebookDebug(page, config, 'link-preview-setup-failed', {
+        error: String(error?.message || 'Facebook link preview setup failed').slice(0, 500),
+        previewProbe: error?.previewProbe || null,
+      });
       throw error;
     }
-    await captureFacebookDebug(page, config, 'text-entered');
-    const linkPreview = await waitForFacebookLinkPreview(
-      page,
-      job.payload.itemUrl,
-      30000,
-      textBox
-    );
+    await captureFacebookDebug(page, config, 'text-and-link-preview-ready', linkPreview);
     await captureFacebookDebug(page, config, 'link-preview-ready', linkPreview);
     if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
 

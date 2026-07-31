@@ -127,6 +127,13 @@ export async function runGitHubAction(env = process.env, options = {}) {
     const queued = await store.enqueue(payload);
     changed ||= queued.accepted;
     outcome = queued.deduplicated ? 'deduplicated' : 'queued';
+    if (queued.deduplicated
+      && postingPolicy(queued.job) === COUPON_ANNOUNCEMENT_POSTING_POLICY
+      && queued.job.status === 'retry') {
+      const expedited = await store.expediteRetry(queued.job.idempotency_key, options.nowMs);
+      changed ||= Boolean(expedited);
+      if (expedited) outcome = 'retry_expedited';
+    }
   } else if (payload) {
     outcome = 'invalid_payload';
   }

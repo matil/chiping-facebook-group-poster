@@ -277,6 +277,41 @@ test('coupon announcements post through the popup link on the fast interval', as
   }
 });
 
+test('a duplicate coupon event immediately retries a transiently failed announcement', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const firstNow = Date.now() + 1000;
+    const firstEnv = await actionEnvironment(directory, {
+      client_payload: { payload: couponPayload() },
+    });
+    firstEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    const first = await runGitHubAction(firstEnv, {
+      nowMs: firstNow,
+      postJob: async () => { throw new Error('temporary Facebook preview failure'); },
+    });
+    assert.equal(first.outcome, 'retry');
+
+    const secondEnv = await actionEnvironment(directory, {
+      client_payload: { payload: couponPayload() },
+    });
+    secondEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    let attempts = 0;
+    const second = await runGitHubAction(secondEnv, {
+      nowMs: firstNow + 1000,
+      postJob: async () => {
+        attempts += 1;
+        return { postUrl: 'https://www.facebook.com/groups/chiping/posts/444/' };
+      },
+    });
+
+    assert.equal(second.outcome, 'posted');
+    assert.equal(second.postUrl, 'https://www.facebook.com/groups/chiping/posts/444/');
+    assert.equal(attempts, 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('GitHub Action can reset and repost one falsely completed product', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
   try {

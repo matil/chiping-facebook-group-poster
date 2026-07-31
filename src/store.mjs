@@ -84,6 +84,19 @@ export class JobStore {
     return { job: structuredClone(job), accepted: true, deduplicated: false };
   }
 
+  async expediteRetry(idempotencyKey, nowMs = Date.now()) {
+    const normalizedKey = String(idempotencyKey || '').trim();
+    const job = this.state.order
+      .map((id) => this.state.jobs[id])
+      .find((entry) => entry?.idempotency_key === normalizedKey);
+    if (!job || job.status !== 'retry') return null;
+    const now = new Date(nowMs).toISOString();
+    job.next_attempt_at = now;
+    job.updated_at = now;
+    await this.persist();
+    return structuredClone(job);
+  }
+
   peekNext(nowMs = Date.now()) {
     const job = this.state.order
       .map((id) => this.state.jobs[id])
