@@ -263,6 +263,94 @@ test('Facebook post verification matches the exact Chiping link-card title when 
   });
 });
 
+test('Facebook link-card verification falls through to DOM permalink recovery', async () => {
+  const title = '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9 AliExpress \u05d4\u05d7\u05d3\u05e9\u05d9\u05dd \u05db\u05d1\u05e8 \u05db\u05d0\u05df';
+  const article = {
+    async isVisible() { return true; },
+    async innerText() { return `${title}\nCHIPING.CO.IL`; },
+    locator() {
+      return {
+        async evaluateAll() { return ['https://www.facebook.com/groups/chiping']; },
+      };
+    },
+  };
+  const page = {
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return {
+          async count() { return 1; },
+          nth() { return article; },
+        };
+      }
+      if (selector === 'body') {
+        return {
+          async evaluate() {
+            return {
+              titleFound: true,
+              hrefs: ['https://www.facebook.com/groups/chiping/posts/555/'],
+              timestampMarked: false,
+              diagnosticLinks: [],
+              diagnosticControls: [],
+            };
+          },
+        };
+      }
+      throw new Error(`Unexpected title recovery selector: ${selector}`);
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostViaLinkCardTitle(page, title), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/555/',
+  });
+});
+
+test('Facebook exact-link matches without anchors continue to title permalink recovery', async () => {
+  const title = '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9 AliExpress \u05d4\u05d7\u05d3\u05e9\u05d9\u05dd \u05db\u05d1\u05e8 \u05db\u05d0\u05df';
+  const page = {
+    async waitForTimeout() {},
+    async evaluate() {},
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return { async count() { return 0; } };
+      }
+      if (selector === 'a[href], [data-lynx-uri]') {
+        return {
+          async evaluateAll() { return { targetFound: true, hrefs: [] }; },
+        };
+      }
+      if (selector === 'body') {
+        return {
+          async evaluate() {
+            return {
+              titleFound: true,
+              hrefs: ['https://www.facebook.com/groups/chiping/posts/666/'],
+              timestampMarked: false,
+              diagnosticLinks: [],
+              diagnosticControls: [],
+            };
+          },
+        };
+      }
+      if (selector === 'a[href]:has(img)') {
+        throw new Error('media fallback must not run after title permalink recovery');
+      }
+      throw new Error(`Unexpected exact-link recovery selector: ${selector}`);
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostWithMediaFallback(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?coupons=1',
+    expectedTitle: title,
+    timeoutMs: 5000,
+    currentPageOnly: true,
+  }), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/666/',
+  });
+});
+
 test('Facebook post verification can recover a link card outside role=article containers', async () => {
   const title = '\u05e2\u05e8\u05db\u05ea \u05d8\u05d9\u05e4\u05d5\u05d7 \u05dc\u05e9\u05d9\u05e2\u05e8 Pantene Molecular Bond Repair';
   const page = {

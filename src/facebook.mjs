@@ -491,6 +491,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
 
   const articles = page.locator('[role="article"]');
   const count = Math.min(await articles.count().catch(() => 0), 50);
+  let articleMatchFound = false;
   if (diagnosticsEnabled) {
     console.log(`[facebook-verifier] link-card scan: ${JSON.stringify({
       expectedTitle: normalizedTitle,
@@ -523,10 +524,11 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
     if (!matchesTitle || !hasChipingMarker) {
       continue;
     }
+    articleMatchFound = true;
     const postUrl = hrefs
       .map(normalizeFacebookGroupPostUrl)
       .find(Boolean) || '';
-    return { found: true, postUrl };
+    if (postUrl) return { found: true, postUrl };
   }
 
   const domResult = await page.locator('body').evaluate((body, expectedTokens) => {
@@ -708,7 +710,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
     })}`);
   }
   return {
-    found: domResult?.titleFound === true,
+    found: articleMatchFound || domResult?.titleFound === true,
     postUrl: domPostUrl,
   };
 }
@@ -875,9 +877,12 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
   });
   if (result.postUrl) return result;
   const targetAnchorResult = await findFacebookGroupPostViaTargetAnchor(page, itemUrl);
-  if (targetAnchorResult.found) return targetAnchorResult;
+  if (targetAnchorResult.postUrl) return targetAnchorResult;
   const titleResult = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
-  if (titleResult.found) return titleResult;
+  if (titleResult.postUrl) return titleResult;
+  if (result.found || targetAnchorResult.found || titleResult.found) {
+    return { found: true, postUrl: '' };
+  }
   return findFacebookGroupPostViaMedia(page, itemUrl, {
     maxCandidates: mediaCandidateLimit,
   });
