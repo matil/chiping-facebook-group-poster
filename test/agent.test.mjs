@@ -169,7 +169,7 @@ test('Facebook post verification matches the exact Chiping link-card title when 
       hrefs: ['https://www.facebook.com/groups/chiping/posts/111/'],
     },
     {
-      text: `${title}\nCHIPING.CO.IL`,
+      text: `Pantene Molecular Bond Repair \u05e2\u05e8\u05db\u05ea \u05d8\u05d9\u05e4\u05d5\u05d7 \u05dc\u05e9\u05d9\u05e2\u05e8\nCHIPING.CO.IL`,
       hrefs: ['https://www.facebook.com/groups/chiping/posts/222/?__cft__=1'],
     },
   ];

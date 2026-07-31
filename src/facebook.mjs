@@ -457,6 +457,9 @@ export async function findFacebookGroupPostViaTargetAnchor(page, itemUrl) {
 export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle) {
   const normalizedTitle = normalizedFacebookText(expectedTitle);
   if (normalizedTitle.length < 8) return { found: false, postUrl: '' };
+  const titleTokens = [...new Set(
+    normalizedTitle.match(/[\p{L}\p{N}%]+/gu) || []
+  )];
 
   const articles = page.locator('[role="article"]');
   const count = Math.min(await articles.count().catch(() => 0), 50);
@@ -472,8 +475,9 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
       ].filter(Boolean))).catch(() => []),
     ]);
     const normalizedText = normalizedFacebookText(text);
-    if (!normalizedText.includes(normalizedTitle)
-      || !normalizedText.includes('chiping.co.il')) {
+    const matchesTitle = normalizedText.includes(normalizedTitle)
+      || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
+    if (!matchesTitle || !normalizedText.includes('chiping.co.il')) {
       continue;
     }
     const postUrl = hrefs
