@@ -61,7 +61,16 @@ export class JobStore {
     const existing = this.state.order
       .map((id) => this.state.jobs[id])
       .find((job) => job?.idempotency_key === idempotencyKey);
-    if (existing) return { job: structuredClone(existing), accepted: false, deduplicated: true };
+    if (existing) {
+      if (existing.status !== 'posted') {
+        existing.payload = payload;
+        existing.product_id = String(payload.productId || existing.product_id || '').trim();
+        existing.content_id = String(payload.contentId || payload.productId || existing.content_id || '').trim();
+        existing.updated_at = new Date().toISOString();
+        await this.persist();
+      }
+      return { job: structuredClone(existing), accepted: false, deduplicated: true };
+    }
 
     const now = new Date().toISOString();
     const job = {

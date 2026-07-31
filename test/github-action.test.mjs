@@ -312,6 +312,44 @@ test('a duplicate coupon event immediately retries a transiently failed announce
   }
 });
 
+test('a duplicate fast product event refreshes its image and retries immediately', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const firstNow = Date.now() + 1000;
+    const oldPayload = payload({
+      posting_policy: 'amazon-deals-all',
+      imageUrl: 'https://cdn.example.test/old.jpg',
+    });
+    const firstEnv = await actionEnvironment(directory, { client_payload: { payload: oldPayload } });
+    firstEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    const first = await runGitHubAction(firstEnv, {
+      nowMs: firstNow,
+      postJob: async () => { throw new Error('temporary Facebook preview failure'); },
+    });
+    assert.equal(first.outcome, 'retry');
+
+    const newPayload = {
+      ...oldPayload,
+      imageUrl: 'https://www.chiping.co.il/facebook-images/9301.jpg?v=new',
+    };
+    const secondEnv = await actionEnvironment(directory, { client_payload: { payload: newPayload } });
+    secondEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    let receivedImage = '';
+    const second = await runGitHubAction(secondEnv, {
+      nowMs: firstNow + 1000,
+      postJob: async (job) => {
+        receivedImage = job.payload.imageUrl;
+        return { postUrl: 'https://www.facebook.com/groups/chiping/posts/445/' };
+      },
+    });
+
+    assert.equal(second.outcome, 'posted');
+    assert.equal(receivedImage, newPayload.imageUrl);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('GitHub Action can reset and repost one falsely completed product', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
   try {

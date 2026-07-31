@@ -128,7 +128,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
     changed ||= queued.accepted;
     outcome = queued.deduplicated ? 'deduplicated' : 'queued';
     if (queued.deduplicated
-      && postingPolicy(queued.job) === COUPON_ANNOUNCEMENT_POSTING_POLICY
+      && [AMAZON_DEALS_POSTING_POLICY, COUPON_ANNOUNCEMENT_POSTING_POLICY].includes(postingPolicy(queued.job))
       && queued.job.status === 'retry') {
       const expedited = await store.expediteRetry(queued.job.idempotency_key, options.nowMs);
       changed ||= Boolean(expedited);

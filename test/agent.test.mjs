@@ -1602,6 +1602,25 @@ test('job store prioritizes a coupon announcement over product backlogs', async 
   }
 });
 
+test('job store refreshes a failed duplicate payload without reopening a posted job', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    const first = await store.enqueue(payload({ imageUrl: 'https://cdn.example.test/old.jpg' }));
+    await store.markRetry(first.job.id, 'stale image', new Date(Date.now() + 60000).toISOString());
+    const refreshed = await store.enqueue(payload({ imageUrl: 'https://www.chiping.co.il/facebook-images/9301.jpg?v=new' }));
+    assert.equal(refreshed.deduplicated, true);
+    assert.equal(refreshed.job.payload.imageUrl, 'https://www.chiping.co.il/facebook-images/9301.jpg?v=new');
+
+    await store.markPosted(first.job.id, 'https://www.facebook.com/groups/chiping/posts/111/');
+    const postedDuplicate = await store.enqueue(payload({ imageUrl: 'https://cdn.example.test/never-use.jpg' }));
+    assert.equal(postedDuplicate.job.payload.imageUrl, 'https://www.chiping.co.il/facebook-images/9301.jpg?v=new');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('job store can reset one falsely completed product without touching others', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
   try {
