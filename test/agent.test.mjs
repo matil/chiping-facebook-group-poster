@@ -287,6 +287,8 @@ test('Facebook post verification opens a non-anchor timestamp to recover the per
     found: true,
     postUrl: 'https://www.facebook.com/groups/chiping/posts/444555666/',
   });
+  const source = await readFile(new URL('../src/facebook.mjs', import.meta.url), 'utf8');
+  assert.match(source, /rawText\.includes\('\\u034f'\)/);
 });
 
 test('Facebook post verification expands collapsed text before matching the item URL', async () => {
