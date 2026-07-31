@@ -262,6 +262,12 @@ export function normalizeFacebookGroupPostUrl(value) {
     if (/^\/photo(?:\.php)?\/?$/i.test(url.pathname) && mediaPostId) {
       return `https://www.facebook.com/groups/chiping/posts/${mediaPostId}/`;
     }
+    const groupRoot = url.pathname.match(/^\/groups\/(chiping|\d+)\/?$/i)?.[1];
+    const queryPostId = url.searchParams.get('multi_permalinks')
+      || url.searchParams.get('story_fbid');
+    if (groupRoot && /^\d+$/.test(String(queryPostId || ''))) {
+      return `https://www.facebook.com/groups/${groupRoot}/posts/${queryPostId}/`;
+    }
     if (!/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/\d+\/?$/i.test(url.pathname)) return '';
     return `https://www.facebook.com${url.pathname.replace(/\/?$/, '/')}`;
   } catch {
@@ -345,6 +351,98 @@ async function scanFacebookGroupArticles(page, itemUrl) {
     return { found: true, postUrl: '' };
   }
   return { found: false, postUrl: '' };
+}
+
+export async function findFacebookGroupPostViaTargetAnchor(page, itemUrl) {
+  const target = new URL(String(itemUrl || ''));
+  const productId = target.searchParams.get('item');
+  if (target.hostname !== 'www.chiping.co.il' || !/^\d+$/.test(String(productId || ''))) {
+    throw new Error('Facebook post verification requires a Chiping item URL');
+  }
+
+  let result = { targetFound: false, hrefs: [] };
+  try {
+    result = await page.locator('a[href], [data-lynx-uri]').evaluateAll((nodes, expectedProductId) => {
+    const decode = (value) => {
+      let output = String(value || '');
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const next = decodeURIComponent(output);
+          if (next === output) break;
+          output = next;
+        } catch {
+          break;
+        }
+      }
+      return output;
+    };
+    const referencesItem = (value) => {
+      const decoded = decode(value);
+      const references = [
+        `www.chiping.co.il/?item=${expectedProductId}`,
+        `chiping.co.il/?item=${expectedProductId}`,
+      ];
+      return references.some((reference) => {
+        const offset = decoded.indexOf(reference);
+        if (offset < 0) return false;
+        const nextCharacter = decoded[offset + reference.length] || '';
+        return !nextCharacter || /[&#\s"'<>]/.test(nextCharacter);
+      });
+    };
+    const valuesForNode = (node) => [
+      node?.href,
+      node?.getAttribute?.('href'),
+      node?.getAttribute?.('data-lynx-uri'),
+    ].map((value) => String(value || '')).filter(Boolean);
+    const isConcretePostUrl = (value) => {
+      try {
+        const url = new URL(String(value || ''), 'https://www.facebook.com');
+        if (!['facebook.com', 'www.facebook.com'].includes(url.hostname)) return false;
+        if (/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/\d+\/?$/i.test(url.pathname)) return true;
+        if (/^\/photo(?:\.php)?\/?$/i.test(url.pathname)
+          && /^gm\.\d+$/i.test(String(url.searchParams.get('set') || ''))) {
+          return true;
+        }
+        return /^\/groups\/(?:chiping|\d+)\/?$/i.test(url.pathname)
+          && /^\d+$/.test(String(
+            url.searchParams.get('multi_permalinks')
+            || url.searchParams.get('story_fbid')
+            || ''
+          ));
+      } catch {
+        return false;
+      }
+    };
+
+    let targetFound = false;
+    for (const node of nodes) {
+      if (!valuesForNode(node).some(referencesItem)) continue;
+      targetFound = true;
+      let scope = node;
+      for (let depth = 0; scope && depth < 16; depth += 1) {
+        const links = [
+          ...(scope.matches?.('a[href], [data-lynx-uri]') ? [scope] : []),
+          ...scope.querySelectorAll('a[href], [data-lynx-uri]'),
+        ];
+        const hrefs = links.flatMap(valuesForNode);
+        const postUrl = hrefs.find(isConcretePostUrl);
+        if (postUrl) return { targetFound: true, hrefs: [postUrl] };
+        scope = scope.parentElement;
+      }
+    }
+    return { targetFound, hrefs: [] };
+    }, productId);
+  } catch {
+    return { found: false, postUrl: '' };
+  }
+
+  const postUrl = (Array.isArray(result?.hrefs) ? result.hrefs : [])
+    .map(normalizeFacebookGroupPostUrl)
+    .find(Boolean) || '';
+  return {
+    found: Boolean(result?.targetFound),
+    postUrl,
+  };
 }
 
 async function navigateFacebookForVerification(page, destination) {
@@ -507,6 +605,8 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
     currentPageOnly,
   });
   if (result.postUrl) return result;
+  const targetAnchorResult = await findFacebookGroupPostViaTargetAnchor(page, itemUrl);
+  if (targetAnchorResult.postUrl) return targetAnchorResult;
   return findFacebookGroupPostViaMedia(page, itemUrl, {
     maxCandidates: mediaCandidateLimit,
   });

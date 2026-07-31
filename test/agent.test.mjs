@@ -12,6 +12,7 @@ import {
   fillFacebookComposerText,
   findFacebookComposerTextBox,
   findFacebookGroupPostOnPage,
+  findFacebookGroupPostViaTargetAnchor,
   findFacebookGroupPostWithMediaFallback,
   findFacebookGroupComposer,
   loginIfNeeded,
@@ -63,6 +64,10 @@ test('Facebook post verification accepts only concrete group post permalinks', (
   assert.equal(
     normalizeFacebookGroupPostUrl('https://www.facebook.com/photo/?fbid=111&set=gm.222333444'),
     'https://www.facebook.com/groups/chiping/posts/222333444/'
+  );
+  assert.equal(
+    normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/chiping/?multi_permalinks=777888999'),
+    'https://www.facebook.com/groups/chiping/posts/777888999/'
   );
   assert.equal(normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/chiping'), '');
   assert.equal(normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/other/posts/123456789/'), '');
@@ -126,6 +131,33 @@ test('Facebook post verification requires the exact item link and returns its pe
     postUrl: 'https://www.facebook.com/groups/chiping/posts/222/',
   });
   assert.equal(navigations.length, 0);
+});
+
+test('Facebook post verification associates a tracked Chiping link with its closest feed permalink', async () => {
+  const page = {
+    locator(selector) {
+      assert.equal(selector, 'a[href], [data-lynx-uri]');
+      return {
+        async evaluateAll(_callback, productId) {
+          assert.equal(productId, '9301');
+          return {
+            targetFound: true,
+            hrefs: [
+              'https://www.facebook.com/groups/chiping/?multi_permalinks=777888999',
+            ],
+          };
+        },
+      };
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostViaTargetAnchor(
+    page,
+    'https://www.chiping.co.il/?item=9301'
+  ), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/777888999/',
+  });
 });
 
 test('Facebook post verification expands collapsed text before matching the item URL', async () => {
