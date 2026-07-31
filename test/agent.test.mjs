@@ -70,6 +70,10 @@ test('Facebook post verification accepts only concrete group post permalinks', (
     normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/chiping/?multi_permalinks=777888999'),
     'https://www.facebook.com/groups/chiping/posts/777888999/'
   );
+  assert.equal(
+    normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/chiping/posts/pfbid02AbCdEf123/?__cft__=1'),
+    'https://www.facebook.com/groups/chiping/posts/pfbid02AbCdEf123/'
+  );
   assert.equal(normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/chiping'), '');
   assert.equal(normalizeFacebookGroupPostUrl('https://www.facebook.com/groups/other/posts/123456789/'), '');
   assert.equal(normalizeFacebookGroupPostUrl('https://example.test/groups/chiping/posts/123456789/'), '');

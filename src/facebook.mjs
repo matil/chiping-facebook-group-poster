@@ -268,7 +268,7 @@ export function normalizeFacebookGroupPostUrl(value) {
     if (groupRoot && /^\d+$/.test(String(queryPostId || ''))) {
       return `https://www.facebook.com/groups/${groupRoot}/posts/${queryPostId}/`;
     }
-    if (!/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/\d+\/?$/i.test(url.pathname)) return '';
+    if (!/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/(?:\d+|pfbid[a-z0-9]+)\/?$/i.test(url.pathname)) return '';
     return `https://www.facebook.com${url.pathname.replace(/\/?$/, '/')}`;
   } catch {
     return '';
@@ -407,7 +407,7 @@ export async function findFacebookGroupPostViaTargetAnchor(page, itemUrl) {
       try {
         const url = new URL(String(value || ''), 'https://www.facebook.com');
         if (!['facebook.com', 'www.facebook.com'].includes(url.hostname)) return false;
-        if (/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/\d+\/?$/i.test(url.pathname)) return true;
+        if (/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/(?:\d+|pfbid[a-z0-9]+)\/?$/i.test(url.pathname)) return true;
         if (/^\/photo(?:\.php)?\/?$/i.test(url.pathname)
           && /^gm\.\d+$/i.test(String(url.searchParams.get('set') || ''))) {
           return true;
@@ -524,7 +524,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
       try {
         const url = new URL(String(value || ''), 'https://www.facebook.com');
         if (!['facebook.com', 'www.facebook.com'].includes(url.hostname)) return false;
-        if (/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/\d+\/?$/i.test(url.pathname)) return true;
+        if (/^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/(?:\d+|pfbid[a-z0-9]+)\/?$/i.test(url.pathname)) return true;
         if (/^\/photo(?:\.php)?\/?$/i.test(url.pathname)
           && /^gm\.\d+$/i.test(String(url.searchParams.get('set') || ''))) {
           return true;
