@@ -289,6 +289,15 @@ function decodedUrl(value) {
   return result;
 }
 
+function normalizedFacebookText(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase('he');
+}
+
 function referencesExactChipingItem(value, productId) {
   const decoded = decodedUrl(value);
   const references = [
@@ -445,6 +454,36 @@ export async function findFacebookGroupPostViaTargetAnchor(page, itemUrl) {
   };
 }
 
+export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle) {
+  const normalizedTitle = normalizedFacebookText(expectedTitle);
+  if (normalizedTitle.length < 8) return { found: false, postUrl: '' };
+
+  const articles = page.locator('[role="article"]');
+  const count = Math.min(await articles.count().catch(() => 0), 50);
+  for (let index = 0; index < count; index += 1) {
+    const article = articles.nth(index);
+    if (!await article.isVisible().catch(() => false)) continue;
+    const [text, hrefs] = await Promise.all([
+      article.innerText().catch(() => ''),
+      article.locator('a[href], [data-lynx-uri]').evaluateAll((links) => links.flatMap((link) => [
+        link.href,
+        link.getAttribute('href'),
+        link.getAttribute('data-lynx-uri'),
+      ].filter(Boolean))).catch(() => []),
+    ]);
+    const normalizedText = normalizedFacebookText(text);
+    if (!normalizedText.includes(normalizedTitle)
+      || !normalizedText.includes('chiping.co.il')) {
+      continue;
+    }
+    const postUrl = hrefs
+      .map(normalizeFacebookGroupPostUrl)
+      .find(Boolean) || '';
+    return { found: true, postUrl };
+  }
+  return { found: false, postUrl: '' };
+}
+
 async function navigateFacebookForVerification(page, destination) {
   try {
     await page.goto(destination, { waitUntil: 'commit', timeout: 45000 });
@@ -594,6 +633,7 @@ export async function findFacebookGroupPostViaMedia(page, itemUrl, {
 export async function findFacebookGroupPostWithMediaFallback(page, {
   groupUrl,
   itemUrl,
+  expectedTitle = '',
   timeoutMs = 30000,
   currentPageOnly = false,
   mediaCandidateLimit = 12,
@@ -607,6 +647,8 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
   if (result.postUrl) return result;
   const targetAnchorResult = await findFacebookGroupPostViaTargetAnchor(page, itemUrl);
   if (targetAnchorResult.postUrl) return targetAnchorResult;
+  const titleResult = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
+  if (titleResult.postUrl) return titleResult;
   return findFacebookGroupPostViaMedia(page, itemUrl, {
     maxCandidates: mediaCandidateLimit,
   });
@@ -614,6 +656,8 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
 
 export async function findFacebookGroupPost(config, itemUrl, options = {}) {
   const playwright = options.playwright || await import('playwright');
+  const expectedTitle = String(options.expectedTitle || '').trim()
+    || await fetchChipingLinkPreviewTitle(itemUrl, options.fetchImpl || fetch).catch(() => '');
   const session = await createFacebookContext(playwright.chromium, config);
   const { context } = session;
   try {
@@ -628,6 +672,7 @@ export async function findFacebookGroupPost(config, itemUrl, options = {}) {
     const result = await findPost(page, {
       groupUrl: config.groupUrl,
       itemUrl,
+      expectedTitle,
       timeoutMs: options.timeoutMs,
       currentPageOnly: options.currentPageOnly === true,
       mediaCandidateLimit: options.mediaCandidateLimit,
@@ -674,6 +719,18 @@ function readHtmlMetaContent(html, key) {
     }
   }
   return '';
+}
+
+async function fetchChipingLinkPreviewTitle(itemUrl, fetchImpl = fetch) {
+  const response = await fetchImpl(String(itemUrl || ''), {
+    headers: {
+      Accept: 'text/html,application/xhtml+xml',
+      'User-Agent': 'facebookexternalhit/1.1 (+https://www.facebook.com/externalhit_uatext.php)',
+    },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!response.ok) return '';
+  return readHtmlMetaContent(await response.text(), 'og:title');
 }
 
 export async function validateChipingLinkPreviewMetadata(
@@ -1058,9 +1115,14 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
     await sortFacebookGroupFeedNewest(page);
+    const expectedTitle = await fetchChipingLinkPreviewTitle(
+      job.payload.itemUrl,
+      fetchImpl
+    ).catch(() => '');
     const existing = await findFacebookGroupPostWithMediaFallback(page, {
       groupUrl: config.groupUrl,
       itemUrl: job.payload.itemUrl,
+      expectedTitle,
       timeoutMs: 5000,
       currentPageOnly: true,
     });
@@ -1115,6 +1177,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     const published = await findFacebookGroupPostWithMediaFallback(page, {
       groupUrl: config.groupUrl,
       itemUrl: job.payload.itemUrl,
+      expectedTitle,
       timeoutMs: 30000,
       currentPageOnly: true,
     });

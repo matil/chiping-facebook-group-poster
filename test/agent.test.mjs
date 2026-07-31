@@ -12,6 +12,7 @@ import {
   fillFacebookComposerText,
   findFacebookComposerTextBox,
   findFacebookGroupPostOnPage,
+  findFacebookGroupPostViaLinkCardTitle,
   findFacebookGroupPostViaTargetAnchor,
   findFacebookGroupPostWithMediaFallback,
   findFacebookGroupComposer,
@@ -157,6 +158,46 @@ test('Facebook post verification associates a tracked Chiping link with its clos
   ), {
     found: true,
     postUrl: 'https://www.facebook.com/groups/chiping/posts/777888999/',
+  });
+});
+
+test('Facebook post verification matches the exact Chiping link-card title when Facebook strips its query string', async () => {
+  const title = '\u05e2\u05e8\u05db\u05ea \u05d8\u05d9\u05e4\u05d5\u05d7 \u05dc\u05e9\u05d9\u05e2\u05e8 Pantene Molecular Bond Repair';
+  const articles = [
+    {
+      text: `${title}\nUnrelated source`,
+      hrefs: ['https://www.facebook.com/groups/chiping/posts/111/'],
+    },
+    {
+      text: `${title}\nCHIPING.CO.IL`,
+      hrefs: ['https://www.facebook.com/groups/chiping/posts/222/?__cft__=1'],
+    },
+  ];
+  const page = {
+    locator(selector) {
+      assert.equal(selector, '[role="article"]');
+      return {
+        async count() { return articles.length; },
+        nth(index) {
+          const article = articles[index];
+          return {
+            async isVisible() { return true; },
+            async innerText() { return article.text; },
+            locator(innerSelector) {
+              assert.equal(innerSelector, 'a[href], [data-lynx-uri]');
+              return {
+                async evaluateAll() { return article.hrefs; },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostViaLinkCardTitle(page, title), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/222/',
   });
 });
 
