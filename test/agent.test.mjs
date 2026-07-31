@@ -22,6 +22,7 @@ import {
   readLoginCredentials,
   sortFacebookGroupFeedNewest,
   validateChipingLinkPreviewMetadata,
+  waitForChipingLinkPreviewMetadata,
   waitForFacebookComposerToClose,
   waitForFacebookLinkPreview,
 } from '../src/facebook.mjs';
@@ -847,6 +848,36 @@ test('Chiping link-preview metadata rejects a stale product image', async () => 
   );
 });
 
+test('Chiping link-preview metadata retries a transient stale crawler response', async () => {
+  const itemUrl = 'https://www.chiping.co.il/?item=10486';
+  const imageUrl = 'https://cdn.example.test/facebook-link-10486.jpg';
+  let calls = 0;
+  const fetchImpl = async (url, options) => {
+    calls += 1;
+    assert.equal(url, itemUrl);
+    assert.equal(options.headers['Cache-Control'], 'no-cache');
+    assert.equal(options.headers.Pragma, 'no-cache');
+    const currentImage = calls < 3
+      ? 'https://cdn.example.test/stale-product.jpg'
+      : imageUrl;
+    return new Response(`<!doctype html><html><head>
+      <meta property="og:url" content="${itemUrl}">
+      <meta property="og:image" content="${currentImage}">
+      <meta property="og:image:width" content="1200">
+      <meta property="og:image:height" content="630">
+    </head></html>`);
+  };
+
+  const result = await waitForChipingLinkPreviewMetadata(itemUrl, imageUrl, fetchImpl, {
+    attempts: 3,
+    delayMs: 1,
+    sleep: async () => {},
+  });
+
+  assert.equal(calls, 3);
+  assert.equal(result.imageUrl, imageUrl);
+});
+
 test('Facebook composer requires a rendered Chiping link card before publishing', async () => {
   const visualSelector = [
     'a[href]',
@@ -1013,7 +1044,7 @@ test('Facebook publisher uses a clickable link preview instead of uploading a ph
     source.indexOf('export async function postFacebookGroupJob'),
     source.length
   );
-  assert.match(publisher, /validateChipingLinkPreviewMetadata/);
+  assert.match(publisher, /waitForChipingLinkPreviewMetadata/);
   assert.match(publisher, /prepareFacebookComposerLinkPreview/);
   assert.match(publisher, /if \(existing\.found\)/);
   assert.doesNotMatch(publisher, /attachFacebookComposerImage/);

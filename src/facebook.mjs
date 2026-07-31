@@ -959,6 +959,8 @@ async function fetchChipingLinkPreviewTitle(itemUrl, fetchImpl = fetch) {
   const response = await fetchImpl(String(itemUrl || ''), {
     headers: {
       Accept: 'text/html,application/xhtml+xml',
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
       'User-Agent': 'facebookexternalhit/1.1 (+https://www.facebook.com/externalhit_uatext.php)',
     },
     signal: AbortSignal.timeout(20000),
@@ -975,6 +977,8 @@ export async function validateChipingLinkPreviewMetadata(
   const response = await fetchImpl(String(itemUrl || ''), {
     headers: {
       Accept: 'text/html,application/xhtml+xml',
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
       'User-Agent': 'facebookexternalhit/1.1 (+https://www.facebook.com/externalhit_uatext.php)',
     },
     signal: AbortSignal.timeout(20000),
@@ -997,6 +1001,29 @@ export async function validateChipingLinkPreviewMetadata(
     throw new Error('Chiping link preview image must be 1200x630');
   }
   return { canonicalUrl, imageUrl, imageWidth, imageHeight };
+}
+
+export async function waitForChipingLinkPreviewMetadata(
+  itemUrl,
+  expectedImageUrl,
+  fetchImpl = fetch,
+  options = {}
+) {
+  const attempts = Math.max(1, Math.min(Number(options.attempts) || 4, 8));
+  const delayMs = Math.max(0, Number(options.delayMs) || 2000);
+  const sleep = typeof options.sleep === 'function'
+    ? options.sleep
+    : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await validateChipingLinkPreviewMetadata(itemUrl, expectedImageUrl, fetchImpl);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await sleep(delayMs);
+    }
+  }
+  throw lastError || new Error('Chiping link preview metadata verification failed');
 }
 
 export async function attachFacebookComposerImage(page, image, options = {}) {
@@ -1328,7 +1355,7 @@ export async function previewFacebookGroupLinkJob(payload, config, options = {})
     await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
-    const previewMetadata = await validateChipingLinkPreviewMetadata(
+    const previewMetadata = await waitForChipingLinkPreviewMetadata(
       payload.itemUrl,
       payload.imageUrl,
       fetchImpl
@@ -1408,11 +1435,19 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     if (!textBox) throw new Error('Facebook group post text box was not found');
     await captureFacebookDebug(page, config, 'composer-open');
 
-    const previewMetadata = await validateChipingLinkPreviewMetadata(
-      job.payload.itemUrl,
-      job.payload.imageUrl,
-      fetchImpl
-    );
+    let previewMetadata;
+    try {
+      previewMetadata = await waitForChipingLinkPreviewMetadata(
+        job.payload.itemUrl,
+        job.payload.imageUrl,
+        fetchImpl
+      );
+    } catch (error) {
+      await captureFacebookDebug(page, config, 'link-metadata-verification-failed', {
+        error: String(error?.message || 'Chiping link preview metadata verification failed').slice(0, 500),
+      });
+      throw error;
+    }
     await captureFacebookDebug(page, config, 'link-metadata-verified', previewMetadata);
     let linkPreview;
     try {
