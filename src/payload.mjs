@@ -2,7 +2,8 @@ export const AMAZON_DEALS_POSTING_POLICY = 'amazon-deals-all';
 export const COUPON_ANNOUNCEMENT_POSTING_POLICY = 'coupon-announcement';
 export const COUPON_ANNOUNCEMENT_TYPE = 'coupon_announcement';
 export const COUPON_ANNOUNCEMENT_URL = 'https://www.chiping.co.il/?coupons=1';
-export const COUPON_ANNOUNCEMENT_IMAGE_URL = 'https://www.chiping.co.il/images/fb-coupons-aliexpress.png';
+export const COUPON_ANNOUNCEMENT_IMAGE_URL = 'https://www.chiping.co.il/images/fb-coupons-aliexpress-v2.png';
+const LEGACY_COUPON_ANNOUNCEMENT_IMAGE_URL = 'https://www.chiping.co.il/images/fb-coupons-aliexpress.png';
 
 function validCommonFields(payload) {
   return payload?.site === 'chiping'
@@ -36,7 +37,8 @@ function validCouponAnnouncement(payload, key, postingPolicy) {
     && /^chiping-facebook:coupons:v1:[a-f0-9]{32}$/.test(key)
     && /^[a-f0-9]{32}$/.test(String(payload?.contentId || ''))
     && payload.itemUrl === COUPON_ANNOUNCEMENT_URL
-    && payload.imageUrl === COUPON_ANNOUNCEMENT_IMAGE_URL;
+    && [COUPON_ANNOUNCEMENT_IMAGE_URL, LEGACY_COUPON_ANNOUNCEMENT_IMAGE_URL]
+      .includes(payload.imageUrl);
 }
 
 export function validChipingFacebookPayload(payload) {

@@ -31,6 +31,7 @@ import {
   loginCompleted,
 } from '../src/interactive-login.mjs';
 import { JobStore } from '../src/store.mjs';
+import { validChipingFacebookPayload } from '../src/payload.mjs';
 
 const secret = 'facebook-group-poster-test-secret-with-at-least-32-characters';
 
@@ -59,7 +60,7 @@ function couponPayload(overrides = {}) {
     post_type: 'coupon_announcement',
     posting_policy: 'coupon-announcement',
     message: '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd \u05dc-AliExpress',
-    imageUrl: 'https://www.chiping.co.il/images/fb-coupons-aliexpress.png',
+    imageUrl: 'https://www.chiping.co.il/images/fb-coupons-aliexpress-v2.png',
     itemUrl: 'https://www.chiping.co.il/?coupons=1',
     ...overrides,
   };
@@ -154,6 +155,13 @@ test('Facebook post verification requires the exact item link and returns its pe
     postUrl: 'https://www.facebook.com/groups/chiping/posts/222/',
   });
   assert.equal(navigations.length, 0);
+});
+
+test('coupon payload validation keeps legacy queued artwork compatible', () => {
+  assert.equal(validChipingFacebookPayload(couponPayload()), true);
+  assert.equal(validChipingFacebookPayload(couponPayload({
+    imageUrl: 'https://www.chiping.co.il/images/fb-coupons-aliexpress.png',
+  })), true);
 });
 
 test('Facebook post verification matches the exact coupon-popup link', async () => {

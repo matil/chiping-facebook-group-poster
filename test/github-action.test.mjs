@@ -39,7 +39,7 @@ function couponPayload(overrides = {}) {
     post_type: 'coupon_announcement',
     posting_policy: 'coupon-announcement',
     message: '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd \u05dc-AliExpress',
-    imageUrl: 'https://www.chiping.co.il/images/fb-coupons-aliexpress.png',
+    imageUrl: 'https://www.chiping.co.il/images/fb-coupons-aliexpress-v2.png',
     itemUrl: 'https://www.chiping.co.il/?coupons=1',
     ...overrides,
   };
