@@ -289,6 +289,7 @@ test('Facebook post verification opens a non-anchor timestamp to recover the per
   });
   const source = await readFile(new URL('../src/facebook.mjs', import.meta.url), 'utf8');
   assert.match(source, /rawText\.includes\('\\u034f'\)/);
+  assert.match(source, /facebookRootLink/);
 });
 
 test('Facebook post verification expands collapsed text before matching the item URL', async () => {
@@ -480,6 +481,53 @@ test('Facebook post verification follows the replacement tab Facebook opens', as
     postUrl: 'https://www.facebook.com/groups/chiping/posts/444/',
   });
   assert.equal(originalScans, 2);
+});
+
+test('Facebook post verification preserves an exact match while its permalink is pending', async () => {
+  let mediaScanned = false;
+  const page = {
+    async waitForTimeout() {},
+    async evaluate() {},
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return { async count() { return 0; } };
+      }
+      if (selector === 'a[href], [data-lynx-uri]') {
+        return {
+          async evaluateAll() {
+            return { targetFound: false, hrefs: [] };
+          },
+        };
+      }
+      if (selector === 'body') {
+        return {
+          async evaluate() {
+            return {
+              titleFound: true,
+              hrefs: [],
+              timestampMarked: false,
+              diagnosticLinks: [],
+              diagnosticControls: [],
+            };
+          },
+        };
+      }
+      if (selector === 'a[href]:has(img)') {
+        mediaScanned = true;
+        return { async evaluateAll() { return []; } };
+      }
+      throw new Error(`Unexpected exact-match selector: ${selector}`);
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostWithMediaFallback(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?item=9301',
+    expectedTitle: '\u05d3\u05d9\u05dc \u05d1\u05d3\u05d9\u05e7\u05d4',
+    timeoutMs: 5000,
+    currentPageOnly: true,
+  }), { found: true, postUrl: '' });
+  assert.equal(mediaScanned, false);
 });
 
 test('Facebook post verification checks media before a stale group feed can cause a duplicate', async () => {

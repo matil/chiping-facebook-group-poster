@@ -608,12 +608,26 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
             const rawText = String(control.textContent || '');
             const text = normalize(rawText);
             const ariaLabel = normalize(control.getAttribute('aria-label'));
+            let facebookRootLink = false;
+            try {
+              const controlUrl = new URL(
+                String(control.getAttribute('href') || ''),
+                'https://www.facebook.com'
+              );
+              facebookRootLink = ['facebook.com', 'www.facebook.com'].includes(controlUrl.hostname)
+                && controlUrl.pathname === '/';
+            } catch {
+              facebookRootLink = false;
+            }
             const timestampLike = /^(?:just now|\d+\s*(?:m|min|h|hr|d|w))$/i.test(text)
               || /^\d+\s*(?:\u05d3\u05e7(?:\u05d5\u05ea)?|\u05e9\u05e2(?:\u05d5\u05ea)?|\u05d9\u05de\u05d9\u05dd?)$/u.test(text)
               || /\b\d+\s+(?:minute|hour|day)s?\b/i.test(ariaLabel)
               || (rawText.includes('\u034f')
                 && control.matches('a, [role="link"]')
-                && /\d+\s*(?:m|min|h|hr|d|w)/i.test(text));
+                && (
+                  facebookRootLink
+                  || /\d+\s*(?:m|min|h|hr|d|w)/i.test(text)
+                ));
             if (!timestampLike) continue;
             control.setAttribute('data-chiping-post-timestamp-probe', 'true');
             timestampMarked = true;
@@ -836,9 +850,9 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
   });
   if (result.postUrl) return result;
   const targetAnchorResult = await findFacebookGroupPostViaTargetAnchor(page, itemUrl);
-  if (targetAnchorResult.postUrl) return targetAnchorResult;
+  if (targetAnchorResult.found) return targetAnchorResult;
   const titleResult = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
-  if (titleResult.postUrl) return titleResult;
+  if (titleResult.found) return titleResult;
   return findFacebookGroupPostViaMedia(page, itemUrl, {
     maxCandidates: mediaCandidateLimit,
   });
