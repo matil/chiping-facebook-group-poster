@@ -539,6 +539,23 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
         return false;
       }
     };
+    const diagnosticLinks = [];
+    const recordDiagnosticLinks = (hrefs) => {
+      for (const href of hrefs) {
+        try {
+          const url = new URL(String(href || ''), 'https://www.facebook.com');
+          if (!['facebook.com', 'www.facebook.com'].includes(url.hostname)) continue;
+          const safeParams = new URLSearchParams();
+          for (const key of ['fbid', 'set', 'story_fbid', 'multi_permalinks', 'id']) {
+            if (url.searchParams.has(key)) safeParams.set(key, url.searchParams.get(key));
+          }
+          const summarized = `${url.pathname}${safeParams.size ? `?${safeParams}` : ''}`;
+          if (!diagnosticLinks.includes(summarized)) diagnosticLinks.push(summarized);
+        } catch {
+          // Ignore malformed links in diagnostics.
+        }
+      }
+    };
 
     const candidates = [...body.querySelectorAll('a, span, div')]
       .filter((node) => hasEveryToken(node.textContent))
@@ -552,12 +569,23 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
           ...scope.querySelectorAll('a[href], [data-lynx-uri]'),
         ];
         const hrefs = links.flatMap(valuesForNode);
+        recordDiagnosticLinks(hrefs);
         const postUrl = hrefs.find(isConcretePostUrl);
-        if (postUrl) return { titleFound: true, hrefs: [postUrl] };
+        if (postUrl) {
+          return {
+            titleFound: true,
+            hrefs: [postUrl],
+            diagnosticLinks: diagnosticLinks.slice(0, 30),
+          };
+        }
       }
     }
-    return { titleFound: candidates.length > 0, hrefs: [] };
-  }, titleTokens).catch(() => ({ titleFound: false, hrefs: [] }));
+    return {
+      titleFound: candidates.length > 0,
+      hrefs: [],
+      diagnosticLinks: diagnosticLinks.slice(0, 30),
+    };
+  }, titleTokens).catch(() => ({ titleFound: false, hrefs: [], diagnosticLinks: [] }));
   const domPostUrl = (Array.isArray(domResult?.hrefs) ? domResult.hrefs : [])
     .map(normalizeFacebookGroupPostUrl)
     .find(Boolean) || '';
@@ -565,6 +593,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
     console.log(`[facebook-verifier] link-card DOM fallback: ${JSON.stringify({
       titleFound: domResult?.titleFound === true,
       postUrl: domPostUrl,
+      candidateLinks: domResult?.diagnosticLinks || [],
     })}`);
   }
   return {
