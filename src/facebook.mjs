@@ -540,6 +540,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
       }
     };
     const diagnosticLinks = [];
+    const diagnosticControls = [];
     const recordDiagnosticLinks = (hrefs) => {
       for (const href of hrefs) {
         try {
@@ -554,6 +555,35 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
         } catch {
           // Ignore malformed links in diagnostics.
         }
+      }
+    };
+    const recordDiagnosticControls = (scope) => {
+      const controls = scope.querySelectorAll('a, button, [role], [tabindex], abbr, time, [data-utime]');
+      for (const control of controls) {
+        const text = normalize(control.textContent);
+        const ariaLabel = normalize(control.getAttribute('aria-label'));
+        const dateValue = String(
+          control.getAttribute('data-utime')
+          || control.getAttribute('datetime')
+          || control.getAttribute('title')
+          || ''
+        ).slice(0, 80);
+        if (!/\d/.test(`${text}${ariaLabel}${dateValue}`)
+          || (text.length > 40 && ariaLabel.length > 80 && !dateValue)) {
+          continue;
+        }
+        const summary = {
+          tag: String(control.tagName || '').toLowerCase(),
+          role: String(control.getAttribute('role') || ''),
+          text: text.slice(0, 40),
+          ariaLabel: ariaLabel.slice(0, 80),
+          dateValue,
+        };
+        const serialized = JSON.stringify(summary);
+        if (!diagnosticControls.some((entry) => JSON.stringify(entry) === serialized)) {
+          diagnosticControls.push(summary);
+        }
+        if (diagnosticControls.length >= 30) break;
       }
     };
 
@@ -571,6 +601,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
         ];
         const hrefs = links.flatMap(valuesForNode);
         recordDiagnosticLinks(hrefs);
+        recordDiagnosticControls(scope);
         if (!timestampMarked) {
           const controls = scope.querySelectorAll('a, [role="link"], button, [role="button"]');
           for (const control of controls) {
@@ -592,6 +623,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
             hrefs: [postUrl],
             timestampMarked,
             diagnosticLinks: diagnosticLinks.slice(0, 30),
+            diagnosticControls: diagnosticControls.slice(0, 30),
           };
         }
       }
@@ -601,12 +633,14 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
       hrefs: [],
       timestampMarked,
       diagnosticLinks: diagnosticLinks.slice(0, 30),
+      diagnosticControls: diagnosticControls.slice(0, 30),
     };
   }, titleTokens).catch(() => ({
     titleFound: false,
     hrefs: [],
     timestampMarked: false,
     diagnosticLinks: [],
+    diagnosticControls: [],
   }));
   let domPostUrl = (Array.isArray(domResult?.hrefs) ? domResult.hrefs : [])
     .map(normalizeFacebookGroupPostUrl)
@@ -627,6 +661,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
       timestampMarked: domResult?.timestampMarked === true,
       postUrl: domPostUrl,
       candidateLinks: domResult?.diagnosticLinks || [],
+      candidateControls: domResult?.diagnosticControls || [],
     })}`);
   }
   return {
