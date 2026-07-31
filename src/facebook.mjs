@@ -460,9 +460,18 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
   const titleTokens = [...new Set(
     normalizedTitle.match(/[\p{L}\p{N}%]+/gu) || []
   )];
+  const diagnosticsEnabled = /^(?:1|true|yes|on)$/i.test(
+    String(process.env.FACEBOOK_VERIFIER_DIAGNOSTICS || '')
+  );
 
   const articles = page.locator('[role="article"]');
   const count = Math.min(await articles.count().catch(() => 0), 50);
+  if (diagnosticsEnabled) {
+    console.log(`[facebook-verifier] link-card scan: ${JSON.stringify({
+      expectedTitle: normalizedTitle,
+      articleCount: count,
+    })}`);
+  }
   for (let index = 0; index < count; index += 1) {
     const article = articles.nth(index);
     if (!await article.isVisible().catch(() => false)) continue;
@@ -477,7 +486,16 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
     const normalizedText = normalizedFacebookText(text);
     const matchesTitle = normalizedText.includes(normalizedTitle)
       || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
-    if (!matchesTitle || !normalizedText.includes('chiping.co.il')) {
+    const hasChipingMarker = normalizedText.includes('chiping.co.il');
+    if (diagnosticsEnabled && (hasChipingMarker || matchesTitle)) {
+      console.log(`[facebook-verifier] link-card candidate: ${JSON.stringify({
+        index,
+        hasChipingMarker,
+        missingTitleTokens: titleTokens.filter((token) => !normalizedText.includes(token)),
+        postUrls: hrefs.map(normalizeFacebookGroupPostUrl).filter(Boolean),
+      })}`);
+    }
+    if (!matchesTitle || !hasChipingMarker) {
       continue;
     }
     const postUrl = hrefs
