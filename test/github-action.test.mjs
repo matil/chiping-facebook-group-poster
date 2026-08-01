@@ -292,6 +292,7 @@ test('GitHub Action blocks instead of duplicating a published post with no produ
     });
 
     assert.equal(result.outcome, 'blocked');
+    assert.match(result.blockedReason, /without its product image link card/);
     assert.equal(result.summary.blocked, 1);
     assert.equal(result.summary.retry, 0);
   } finally {

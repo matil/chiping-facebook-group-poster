@@ -148,4 +148,8 @@ jobs:
 
       - name: Flag a newly blocked queue
         if: steps.poster.outputs.alert == 'true'
-        run: exit 1
+        env:
+          BLOCKED_REASON: ${{ steps.poster.outputs.blocked_reason }}
+        run: |
+          printf 'Facebook queue blocked: %s\n' "${BLOCKED_REASON:-unknown}"
+          exit 1

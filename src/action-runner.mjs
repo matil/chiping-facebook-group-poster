@@ -231,14 +231,28 @@ export async function runGitHubAction(env = process.env, options = {}) {
       storageStateFile: config.storageStateFile,
     });
   }
+  const blockedJob = [...store.state.order]
+    .reverse()
+    .map((id) => store.state.jobs[id])
+    .find((job) => job?.status === 'blocked');
+  const blockedReason = String(blockedJob?.last_error || '').slice(0, 160);
   await writeOutputs({
     outcome,
     state_changed: changed,
     alert,
     verification_reason: verificationReason,
+    blocked_reason: blockedReason,
     post_url: postUrl,
   });
-  return { outcome, stateChanged: changed, alert, verificationReason, postUrl, summary: store.summary() };
+  return {
+    outcome,
+    stateChanged: changed,
+    alert,
+    verificationReason,
+    blockedReason,
+    postUrl,
+    summary: store.summary(),
+  };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
