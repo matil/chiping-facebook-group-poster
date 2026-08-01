@@ -691,6 +691,32 @@ test('Facebook post verification follows the replacement tab Facebook opens', as
   assert.equal(originalScans, 2);
 });
 
+test('Facebook post verification searches by the published title when the item query is stripped', async () => {
+  const navigations = [];
+  const page = {
+    url: () => 'https://www.facebook.com/groups/chiping',
+    async goto(url) { navigations.push(url); },
+    async waitForLoadState() {},
+    async waitForTimeout() {},
+    locator(selector) {
+      assert.equal(selector, '[role="article"]');
+      return { async count() { return 0; } };
+    },
+  };
+
+  await findFacebookGroupPostOnPage(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?item=10432',
+    searchTerm: 'זוג מברשות שיניים חשמליות Oral-B iO2',
+    timeoutMs: 5000,
+  });
+
+  assert.equal(
+    navigations[0],
+    'https://www.facebook.com/groups/chiping/search/?q=%D7%96%D7%95%D7%92%20%D7%9E%D7%91%D7%A8%D7%A9%D7%95%D7%AA%20%D7%A9%D7%99%D7%A0%D7%99%D7%99%D7%9D%20%D7%97%D7%A9%D7%9E%D7%9C%D7%99%D7%95%D7%AA%20Oral-B%20iO2'
+  );
+});
+
 test('Facebook post verification preserves an exact match while its permalink is pending', async () => {
   let mediaScanned = false;
   const page = {

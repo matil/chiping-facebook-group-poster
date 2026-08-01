@@ -762,13 +762,16 @@ export async function findFacebookGroupPostOnPage(page, {
   itemUrl,
   timeoutMs = 30000,
   currentPageOnly = false,
+  searchTerm = '',
 } = {}) {
   const waitBudgetMs = Math.max(5000, Math.min(Number(timeoutMs) || 30000, 60000));
   const target = chipingFacebookTarget(itemUrl);
   if (!target) throw new Error('Facebook post verification requires a supported Chiping URL');
-  const searchTerm = target.type === 'item' ? target.value : 'קופוני AliExpress';
+  const groupSearchTerm = target.type === 'item'
+    ? (String(searchTerm || '').trim() || target.value)
+    : 'קופוני AliExpress';
   const destinations = [
-    `${groupUrl}/search/?q=${encodeURIComponent(searchTerm)}`,
+    `${groupUrl}/search/?q=${encodeURIComponent(groupSearchTerm)}`,
     `${groupUrl}?sorting_setting=CHRONOLOGICAL`,
   ];
   const attemptsPerDestination = Math.max(
@@ -882,6 +885,7 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
     itemUrl,
     timeoutMs,
     currentPageOnly,
+    searchTerm: expectedTitle,
   });
   if (result.postUrl) return result;
   const targetAnchorResult = await findFacebookGroupPostViaTargetAnchor(page, itemUrl);
