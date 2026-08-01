@@ -50,6 +50,7 @@ export async function verifyFacebookPost(env = process.env, options = {}) {
   await writeOutputs({
     found: result.found === true,
     post_url: result.postUrl || '',
+    destination_url: result.imageDestinationUrl || '',
     product_id: productId,
   });
   return { productId, ...result };

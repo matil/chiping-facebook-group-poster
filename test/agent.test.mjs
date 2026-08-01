@@ -1265,6 +1265,7 @@ test('Facebook product image click opens the exact Chiping item', async () => {
   }), {
     verified: true,
     destinationUrl: 'https://www.chiping.co.il/?item=10463&fbclid=verified',
+    observedUrls: ['https://www.chiping.co.il/?item=10463&fbclid=verified'],
   });
 });
 

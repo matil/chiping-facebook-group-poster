@@ -1070,6 +1070,13 @@ export async function findFacebookGroupPost(config, itemUrl, options = {}) {
         expectedTitle,
         itemUrl,
       });
+      if (options.screenshotPath) {
+        const extension = path.extname(options.screenshotPath);
+        const clickedPath = extension
+          ? `${options.screenshotPath.slice(0, -extension.length)}-after-click${extension}`
+          : `${options.screenshotPath}-after-click.png`;
+        await page.screenshot({ path: clickedPath, fullPage: true }).catch(() => {});
+      }
       return {
         ...result,
         found: destination.verified === true,
@@ -1524,18 +1531,24 @@ export async function verifyFacebookPostImageDestination(page, {
     const image = media.nth(candidate.index);
     if (!await image.click({ timeout: 10000 }).then(() => true).catch(() => false)) continue;
     const deadline = Date.now() + Math.max(3000, Math.min(Number(timeoutMs) || 10000, 20000));
+    const observedUrls = new Set();
     while (Date.now() < deadline) {
       const context = typeof page.context === 'function' ? page.context() : null;
       const pages = context?.pages?.() || [page];
       for (const candidatePage of pages) {
         const destinationUrl = String(candidatePage?.url?.() || '');
+        if (destinationUrl) observedUrls.add(destinationUrl);
         if (referencesExactChipingTarget(destinationUrl, target)) {
-          return { verified: true, destinationUrl };
+          return { verified: true, destinationUrl, observedUrls: [...observedUrls] };
         }
       }
       await page.waitForTimeout(250).catch(() => {});
     }
-    return { verified: false, destinationUrl: '' };
+    return {
+      verified: false,
+      destinationUrl: [...observedUrls].at(-1) || '',
+      observedUrls: [...observedUrls],
+    };
   }
   return { verified: false, destinationUrl: '' };
 }

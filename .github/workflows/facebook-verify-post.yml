@@ -84,7 +84,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: facebook-group-feed-${{ github.run_id }}
-          path: ${{ runner.temp }}/facebook-group-feed.png
+          path: ${{ runner.temp }}/facebook-group-feed*.png
           if-no-files-found: ignore
           retention-days: 1
 
@@ -93,10 +93,14 @@ jobs:
         env:
           FOUND: ${{ steps.verify.outputs.found }}
           POST_URL: ${{ steps.verify.outputs.post_url }}
+          DESTINATION_URL: ${{ steps.verify.outputs.destination_url }}
           PRODUCT_ID: ${{ inputs.product_id }}
         run: |
           printf 'Product %s found: %s\n' "$PRODUCT_ID" "${FOUND:-false}"
           if [ -n "${POST_URL:-}" ]; then
             printf 'Post URL: %s\n' "$POST_URL"
+          fi
+          if [ -n "${DESTINATION_URL:-}" ]; then
+            printf 'Image destination: %s\n' "$DESTINATION_URL"
           fi
           test "${FOUND:-false}" = 'true'
