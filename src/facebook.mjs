@@ -1425,7 +1425,7 @@ export async function previewFacebookGroupLinkJob(payload, config, options = {})
         page,
         textBox,
         String(payload.message),
-        payload.itemUrl,
+        buildFacebookPreviewShareUrl(payload.itemUrl, payload.imageUrl),
         30000
       );
       await captureFacebookDebug(page, config, 'link-preview-dry-run', {
