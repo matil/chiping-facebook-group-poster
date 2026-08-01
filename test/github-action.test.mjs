@@ -489,6 +489,7 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
     'utf8'
   );
   assert.match(verificationWorkflow, /node src\/verify-post\.mjs/);
+  assert.match(verificationWorkflow, /FACEBOOK_VERIFY_EXPECTED_TITLE: \$\{\{ inputs\.expected_title \}\}/);
   assert.match(verificationWorkflow, /FACEBOOK_VERIFY_PRODUCT_ID:/);
   assert.match(verificationWorkflow, /FACEBOOK_VERIFY_CURRENT_PAGE_ONLY: 'false'/);
   assert.match(verificationWorkflow, /FACEBOOK_VERIFY_SORT_NEWEST: 'true'/);
