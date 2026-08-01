@@ -1261,6 +1261,36 @@ function cleanFacebookComposerMessage(message, itemUrl) {
     .trim();
 }
 
+export async function selectFacebookComposerText(textBox, text) {
+  const target = String(text || '');
+  if (!target) return false;
+  return textBox.evaluate((editor, needle) => {
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    let combined = '';
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      nodes.push({ node, start: combined.length, end: combined.length + node.data.length });
+      combined += node.data;
+    }
+    const offset = combined.lastIndexOf(needle);
+    if (offset < 0) return false;
+    const endOffset = offset + needle.length;
+    const startNode = nodes.find((entry) => entry.start <= offset && entry.end >= offset);
+    const endNode = nodes.find((entry) => entry.start <= endOffset && entry.end >= endOffset)
+      || nodes.at(-1);
+    if (!startNode || !endNode) return false;
+    const range = document.createRange();
+    range.setStart(startNode.node, offset - startNode.start);
+    range.setEnd(endNode.node, Math.min(endNode.node.data.length, endOffset - endNode.start));
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    editor.focus();
+    return !selection.isCollapsed;
+  }, target).catch(() => false);
+}
+
 export async function waitForFacebookLinkPreview(
   page,
   itemUrl,
@@ -1421,7 +1451,9 @@ export async function prepareFacebookComposerLinkPreview(
     textBox
   );
 
-  await fillFacebookComposerText(page, textBox, cleanMessage);
+  const selectedUrl = await selectFacebookComposerText(textBox, itemUrl);
+  if (!selectedUrl) throw new Error('Facebook composer URL could not be selected for removal');
+  await page.keyboard.press('Backspace');
   await page.waitForTimeout(500);
   const visibleText = String(await textBox.innerText().catch(() => ''));
   const target = chipingFacebookTarget(itemUrl);

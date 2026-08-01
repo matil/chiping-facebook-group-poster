@@ -23,6 +23,7 @@ import {
   normalizeFacebookGroupPostUrl,
   prepareFacebookComposerLinkPreview,
   readLoginCredentials,
+  selectFacebookComposerText,
   sortFacebookGroupFeedNewest,
   validateChipingLinkPreviewMetadata,
   waitForChipingLinkPreviewMetadata,
@@ -1664,6 +1665,7 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
   const cleanMessage = '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd \u05dc-AliExpress';
   let value = '';
   let previewReady = false;
+  let selection = '';
   const fills = [];
   const visualSelector = [
     'a[href]',
@@ -1705,6 +1707,11 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
       if (text.includes(itemUrl)) previewReady = true;
     },
     async innerText() { return value; },
+    async evaluate(_callback, target) {
+      if (!value.includes(target)) return false;
+      selection = target;
+      return true;
+    },
     locator(selector) {
       assert.equal(selector, 'xpath=ancestor::*[@role="dialog"][1]');
       return dialog;
@@ -1713,7 +1720,9 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
   const page = {
     async waitForTimeout() {},
     keyboard: {
-      async press() {},
+      async press(key) {
+        if (key === 'Backspace' && selection) value = value.replace(selection, '');
+      },
       async insertText(text) { value = text; },
     },
   };
@@ -1725,12 +1734,22 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
     itemUrl
   );
 
-  assert.deepEqual(fills, [`${cleanMessage}\n\n${itemUrl}`, cleanMessage]);
+  assert.deepEqual(fills, [`${cleanMessage}\n\n${itemUrl}`]);
   assert.equal(value.trim(), cleanMessage);
   assert.equal(previewReady, true);
   assert.equal(result.visibleUrlRemoved, true);
   assert.equal(result.hasTargetAnchor, false);
   assert.equal(result.hostOccurrences, 1);
+});
+
+test('Facebook URL range selection fails closed when the staged URL is absent', async () => {
+  const textBox = {
+    async evaluate() { return false; },
+  };
+  assert.equal(await selectFacebookComposerText(
+    textBox,
+    'https://www.chiping.co.il/?item=9301'
+  ), false);
 });
 
 test('Facebook posting waits for the composer to close instead of aborting an upload', async () => {
