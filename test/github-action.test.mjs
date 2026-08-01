@@ -400,25 +400,47 @@ test('a duplicate fast product event refreshes its image and retries immediately
 test('GitHub Action can reset and repost one falsely completed product', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
   try {
+    const firstNow = Date.now();
     const env = await actionEnvironment(directory, { client_payload: { payload: payload() } });
     env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
     await runGitHubAction(env, {
+      nowMs: firstNow + 1000,
       postJob: async () => ({
         postUrl: 'https://www.facebook.com/groups/chiping/posts/111/',
       }),
     });
 
+    const recentPayload = payload({
+      idempotency_key: 'chiping-facebook:v1:9302',
+      productId: '9302',
+      itemUrl: 'https://www.chiping.co.il/?item=9302',
+    });
+    const recentEnv = await actionEnvironment(directory, { client_payload: { payload: recentPayload } });
+    recentEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    const recentResult = await runGitHubAction(recentEnv, {
+      nowMs: firstNow + 21 * 60 * 60 * 1000,
+      postJob: async () => ({
+        postUrl: 'https://www.facebook.com/groups/chiping/posts/112/',
+      }),
+    });
+    assert.equal(recentResult.outcome, 'posted');
+    assert.equal(recentResult.summary.posted, 2);
+
     const resetEnv = await actionEnvironment(directory);
     resetEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
     resetEnv.FACEBOOK_ACTION_RESET_PRODUCT_ID = '9301';
+    let repostedProductId = '';
     const result = await runGitHubAction(resetEnv, {
-      postJob: async () => ({
-        postUrl: 'https://www.facebook.com/groups/chiping/posts/222/',
-      }),
+      nowMs: firstNow + 21 * 60 * 60 * 1000 + 1000,
+      postJob: async (job) => {
+        repostedProductId = job.product_id;
+        return { postUrl: 'https://www.facebook.com/groups/chiping/posts/222/' };
+      },
     });
     assert.equal(result.outcome, 'posted');
     assert.equal(result.postUrl, 'https://www.facebook.com/groups/chiping/posts/222/');
-    assert.equal(result.summary.posted, 1);
+    assert.equal(repostedProductId, '9301');
+    assert.equal(result.summary.posted, 2);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
