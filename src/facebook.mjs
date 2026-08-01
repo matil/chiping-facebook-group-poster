@@ -1602,8 +1602,9 @@ export async function postFacebookGroupJob(job, config, options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
   const session = await createFacebookContext(chromium, config);
   const { context } = session;
+  let page = null;
   try {
-    const page = context.pages()[0] || await context.newPage();
+    page = context.pages()[0] || await context.newPage();
     await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
@@ -1700,6 +1701,15 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       throw new Error('Facebook did not expose the published group post');
     }
     return { published: true, postUrl: published.postUrl || '' };
+  } catch (error) {
+    if (page) {
+      await captureFacebookDebug(page, config, 'post-failed', {
+        errorName: String(error?.name || 'Error').slice(0, 120),
+        error: String(error?.message || 'Facebook group post failed').slice(0, 500),
+        previewProbe: error?.previewProbe || null,
+      });
+    }
+    throw error;
   } finally {
     if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
     await context.close();
