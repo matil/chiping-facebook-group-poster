@@ -417,6 +417,9 @@ test('Facebook post verification opens a non-anchor timestamp to recover the per
           },
         };
       }
+      if (selector === 'a[href]') {
+        return { async evaluateAll() { return []; } };
+      }
       assert.equal(selector, '[data-chiping-post-timestamp-probe="true"]');
       return {
         first() {
@@ -445,6 +448,56 @@ test('Facebook post verification opens a non-anchor timestamp to recover the per
   const source = await readFile(new URL('../src/facebook.mjs', import.meta.url), 'utf8');
   assert.match(source, /rawText\.includes\('\\u034f'\)/);
   assert.match(source, /facebookRootLink/);
+});
+
+test('Facebook post verification finds a permalink rendered after timestamp click', async () => {
+  let timestampOpened = false;
+  const page = {
+    locator(selector) {
+      if (selector === '[role="article"]') return { async count() { return 0; } };
+      if (selector === 'body') {
+        return {
+          async evaluate() {
+            return {
+              titleFound: true,
+              hrefs: [],
+              timestampMarked: true,
+              diagnosticLinks: [],
+              diagnosticControls: [],
+            };
+          },
+        };
+      }
+      if (selector === '[data-chiping-post-timestamp-probe="true"]') {
+        return {
+          first() {
+            return { async click() { timestampOpened = true; } };
+          },
+        };
+      }
+      if (selector === 'a[href]') {
+        return {
+          async evaluateAll() {
+            return timestampOpened
+              ? ['https://www.facebook.com/groups/chiping/posts/777888999/']
+              : [];
+          },
+        };
+      }
+      throw new Error(`Unexpected timestamp modal selector: ${selector}`);
+    },
+    async waitForTimeout() {},
+    context() { return { pages() { return [page]; } }; },
+    url() { return 'https://www.facebook.com/groups/chiping'; },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostViaLinkCardTitle(
+    page,
+    'זוג מברשות שיניים חשמליות Oral-B iO2'
+  ), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/777888999/',
+  });
 });
 
 test('Facebook post verification expands collapsed text before matching the item URL', async () => {

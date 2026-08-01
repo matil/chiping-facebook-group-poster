@@ -693,11 +693,19 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
   if (!domPostUrl && domResult?.timestampMarked === true) {
     const timestamp = page.locator('[data-chiping-post-timestamp-probe="true"]').first();
     await timestamp.click({ timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(1000).catch(() => {});
+    await page.waitForTimeout(3000).catch(() => {});
     const context = typeof page.context === 'function' ? page.context() : null;
     const pages = context?.pages?.() || [page];
-    domPostUrl = pages
-      .map((candidate) => normalizeFacebookGroupPostUrl(candidate.url?.()))
+    const openedCandidates = [];
+    for (const candidate of pages) {
+      openedCandidates.push(candidate.url?.());
+      const hrefs = await candidate.locator('a[href]').evaluateAll((links) => (
+        links.map((link) => link.href)
+      )).catch(() => []);
+      openedCandidates.push(...hrefs);
+    }
+    domPostUrl = openedCandidates
+      .map(normalizeFacebookGroupPostUrl)
       .find(Boolean) || '';
   }
   if (diagnosticsEnabled) {
