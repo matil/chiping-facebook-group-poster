@@ -1628,6 +1628,13 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     if (existing.found) return { published: true, postUrl: existing.postUrl || '' };
     if (existing.incomplete) throw new FacebookPostMediaRequiredError();
 
+    // Verification may leave the active tab on Facebook's group-search route.
+    // Return to the group feed before looking for the composer.
+    page = await navigateFacebookForVerification(page, config.groupUrl);
+    await loginIfNeeded(page, config);
+    await selectPostingProfile(page, config);
+    await sortFacebookGroupFeedNewest(page);
+
     const composer = await findFacebookGroupComposer(page);
     if (!composer) throw new Error('Facebook group composer was not found');
     await composer.click();

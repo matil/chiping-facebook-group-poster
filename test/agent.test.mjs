@@ -1277,6 +1277,10 @@ test('Facebook publisher uses a clickable link preview instead of uploading a ph
   assert.match(publisher, /const messageTitle = String\(job\.payload\.message \|\| ''\)/);
   assert.match(publisher, /const expectedTitle = messageTitle \|\| await fetchChipingLinkPreviewTitle/);
   assert.match(publisher, /if \(existing\.found\)/);
+  assert.match(
+    publisher,
+    /if \(existing\.incomplete\)[\s\S]*page = await navigateFacebookForVerification\(page, config\.groupUrl\);[\s\S]*const composer = await findFacebookGroupComposer\(page\)/
+  );
   const postSubmitVerification = publisher.slice(publisher.indexOf('await postButton.click()'));
   assert.match(postSubmitVerification, /timeoutMs: 60000/);
   assert.match(postSubmitVerification, /currentPageOnly: false/);
