@@ -334,6 +334,63 @@ test('Facebook post verification rejects a matching blank link card without a cl
   }), { found: false, postUrl: '' });
 });
 
+test('Facebook post verification checks the current feed before opening search', async () => {
+  const title = '\u05e2\u05e8\u05db\u05ea \u05de\u05e0\u05d9\u05e7\u05d5\u05e8 \u05d5\u05e4\u05d3\u05d9\u05e7\u05d5\u05e8 Beurer MP 64';
+  let navigated = false;
+  const mediaSelector = [
+    'img',
+    '[role="img"]',
+    '[data-visualcompletion="media-vc-image"]',
+    '[style*="background-image"]',
+  ].join(', ');
+  const article = {
+    async isVisible() { return true; },
+    async innerText() { return `${title}\nCHIPING.CO.IL`; },
+    locator(selector) {
+      if (selector === 'a[href], [data-lynx-uri]') {
+        return {
+          async evaluateAll() {
+            return ['https://www.facebook.com/groups/chiping/posts/10463/'];
+          },
+        };
+      }
+      assert.equal(selector, mediaSelector);
+      return {
+        async evaluateAll() {
+          return [{
+            width: 500,
+            height: 262,
+            visible: true,
+            imageLoaded: true,
+            clickable: true,
+          }];
+        },
+      };
+    },
+  };
+  const page = {
+    async goto() { navigated = true; },
+    locator(selector) {
+      assert.equal(selector, '[role="article"]');
+      return {
+        async count() { return 1; },
+        nth() { return article; },
+      };
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostWithMediaFallback(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?item=10463',
+    expectedTitle: title,
+    requireLoadedLinkImage: true,
+  }), {
+    found: true,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/10463/',
+  });
+  assert.equal(navigated, false);
+});
+
 test('Facebook link-card verification falls through to DOM permalink recovery', async () => {
   const title = '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9 AliExpress \u05d4\u05d7\u05d3\u05e9\u05d9\u05dd \u05db\u05d1\u05e8 \u05db\u05d0\u05df';
   const article = {

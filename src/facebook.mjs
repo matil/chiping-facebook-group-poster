@@ -942,29 +942,36 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
   requireLoadedLinkImage = false,
 } = {}) {
   if (requireLoadedLinkImage) {
-    const searchPages = [page];
-    if (!currentPageOnly && String(expectedTitle || '').trim()) {
+    const completeCurrent = await findFacebookGroupPostViaLinkCardTitle(
+      page,
+      expectedTitle,
+      { requireLoadedLinkImage: true }
+    );
+    if (completeCurrent.found) return completeCurrent;
+    const incompleteCurrent = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
+    if (currentPageOnly) {
+      return {
+        found: false,
+        postUrl: incompleteCurrent.postUrl || '',
+        incomplete: incompleteCurrent.found === true,
+      };
+    }
+
+    let completeSearch = { found: false, postUrl: '' };
+    let incompleteSearch = { found: false, postUrl: '' };
+    if (String(expectedTitle || '').trim()) {
       const searchUrl = `${groupUrl}/search/?q=${encodeURIComponent(String(expectedTitle).trim())}`;
       page = await navigateFacebookForVerification(page, searchUrl);
       await page.waitForTimeout(2000);
-      searchPages.push(page);
-    }
-    for (const candidatePage of [...new Set(searchPages)]) {
-      const completeResult = await findFacebookGroupPostViaLinkCardTitle(
-        candidatePage,
+      completeSearch = await findFacebookGroupPostViaLinkCardTitle(
+        page,
         expectedTitle,
         { requireLoadedLinkImage: true }
       );
-      if (completeResult.found) return completeResult;
+      if (completeSearch.found) return completeSearch;
+      incompleteSearch = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
     }
-    let incompleteResult = { found: false, postUrl: '' };
-    for (const candidatePage of [...new Set(searchPages)]) {
-      const result = await findFacebookGroupPostViaLinkCardTitle(candidatePage, expectedTitle);
-      if (result.found) {
-        incompleteResult = result;
-        break;
-      }
-    }
+    const incompleteResult = incompleteCurrent.found ? incompleteCurrent : incompleteSearch;
     return {
       found: false,
       postUrl: incompleteResult.postUrl || '',
