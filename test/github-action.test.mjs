@@ -300,6 +300,37 @@ test('GitHub Action blocks instead of duplicating a published post with no produ
   }
 });
 
+test('reviewed unlinked finalization survives the next workflow run', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, {
+      client_payload: { payload: payload({ posting_policy: 'amazon-deals-all' }) },
+    });
+    env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    const blocked = await runGitHubAction(env, {
+      postJob: async () => { throw new FacebookPostMediaRequiredError(); },
+    });
+    assert.equal(blocked.summary.blocked, 1);
+
+    const finalizeEnv = await actionEnvironment(directory);
+    finalizeEnv.FACEBOOK_ACTION_FINALIZE_UNLINKED_PRODUCT_ID = '9301';
+    const finalized = await runGitHubAction(finalizeEnv);
+    assert.equal(finalized.outcome, 'finalized_unlinked');
+    assert.equal(finalized.summary.blocked, 0);
+    assert.equal(finalized.summary.posted, 1);
+
+    const restartEnv = await actionEnvironment(directory);
+    restartEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    const restarted = await runGitHubAction(restartEnv, {
+      postJob: async () => { throw new Error('a finalized item must not be posted again'); },
+    });
+    assert.equal(restarted.summary.blocked, 0);
+    assert.equal(restarted.summary.posted, 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('coupon announcements post through the popup link on the fast interval', async () => {
   assert.equal(postIntervalMsForJob({ payload: couponPayload() }), 5 * 60 * 1000);
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));

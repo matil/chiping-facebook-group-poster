@@ -175,6 +175,15 @@ export async function runGitHubAction(env = process.env, options = {}) {
       outcome = 'confirmed';
     }
   }
+  if (finalizeUnlinkedProductId) {
+    if (!/^\d+$/.test(finalizeUnlinkedProductId)) {
+      throw new Error('FACEBOOK_ACTION_FINALIZE_UNLINKED_PRODUCT_ID must be numeric');
+    }
+    const finalizedCount = await store.finalizeProductPostedUnlinked(finalizeUnlinkedProductId);
+    changed ||= finalizedCount > 0;
+    confirmed = finalizedCount > 0;
+    if (confirmed) outcome = 'finalized_unlinked';
+  }
 
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
   const summary = store.summary();
@@ -237,15 +246,6 @@ export async function runGitHubAction(env = process.env, options = {}) {
       dataDir: config.dataDir,
       storageStateFile: config.storageStateFile,
     });
-  }
-  if (finalizeUnlinkedProductId) {
-    if (!/^\d+$/.test(finalizeUnlinkedProductId)) {
-      throw new Error('FACEBOOK_ACTION_FINALIZE_UNLINKED_PRODUCT_ID must be numeric');
-    }
-    const finalizedCount = await store.finalizeProductPostedUnlinked(finalizeUnlinkedProductId);
-    changed ||= finalizedCount > 0;
-    confirmed = finalizedCount > 0;
-    if (confirmed) outcome = 'finalized_unlinked';
   }
   const blockedJob = [...store.state.order]
     .reverse()
