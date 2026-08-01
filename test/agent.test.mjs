@@ -17,6 +17,7 @@ import {
   findFacebookGroupPostViaTargetAnchor,
   findFacebookGroupPostWithMediaFallback,
   findFacebookGroupComposer,
+  hasLoadedFacebookPostLinkImage,
   hasLoadedFacebookPreviewVisual,
   loginIfNeeded,
   normalizeFacebookGroupPostUrl,
@@ -272,6 +273,64 @@ test('Facebook post verification matches the exact Chiping link-card title when 
     found: true,
     postUrl: 'https://www.facebook.com/groups/chiping/posts/222/',
   });
+});
+
+test('Facebook post verification rejects a matching blank link card without a clickable image', async () => {
+  const title = '\u05e8\u05d0\u05e9 \u05de\u05e7\u05dc\u05d7\u05ea \u05d2\u05e9\u05dd \u05db\u05e4\u05d5\u05dc';
+  const mediaSelector = [
+    'img',
+    '[role="img"]',
+    '[data-visualcompletion="media-vc-image"]',
+    '[style*="background-image"]',
+  ].join(', ');
+  const page = {
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return {
+          async count() { return 1; },
+          nth() {
+            return {
+              async isVisible() { return true; },
+              async innerText() { return `${title}\nCHIPING.CO.IL`; },
+              locator(innerSelector) {
+                if (innerSelector === 'a[href], [data-lynx-uri]') {
+                  return { async evaluateAll() { return []; } };
+                }
+                assert.equal(innerSelector, mediaSelector);
+                return {
+                  async evaluateAll() {
+                    return [{
+                      width: 500,
+                      height: 262,
+                      visible: true,
+                      imageLoaded: false,
+                      clickable: true,
+                    }];
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+      assert.equal(selector, 'body');
+      return {
+        async evaluate() {
+          return {
+            titleFound: false,
+            hrefs: [],
+            timestampMarked: false,
+            diagnosticLinks: [],
+            diagnosticControls: [],
+          };
+        },
+      };
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostViaLinkCardTitle(page, title, {
+    requireLoadedLinkImage: true,
+  }), { found: false, postUrl: '' });
 });
 
 test('Facebook link-card verification falls through to DOM permalink recovery', async () => {
@@ -1067,6 +1126,30 @@ test('Facebook composer rejects a large placeholder until the preview image is l
   assert.equal(hasLoadedFacebookPreviewVisual(loaded), true);
 });
 
+test('published Facebook posts require a loaded clickable link-card image', () => {
+  assert.equal(hasLoadedFacebookPostLinkImage([{
+    width: 500,
+    height: 262,
+    visible: true,
+    imageLoaded: true,
+    clickable: true,
+  }]), true);
+  assert.equal(hasLoadedFacebookPostLinkImage([{
+    width: 500,
+    height: 262,
+    visible: true,
+    imageLoaded: false,
+    clickable: true,
+  }]), false);
+  assert.equal(hasLoadedFacebookPostLinkImage([{
+    width: 500,
+    height: 262,
+    visible: true,
+    imageLoaded: true,
+    clickable: false,
+  }]), false);
+});
+
 test('Facebook composer stages a versioned URL while preserving the clean item target', () => {
   assert.equal(
     buildFacebookPreviewShareUrl(
@@ -1629,7 +1712,9 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
   const page = {
     async waitForTimeout() {},
     keyboard: {
-      async press() {},
+      async press(key) {
+        if (key === 'Backspace') value = value.replace(/[^\n]*$/, '');
+      },
       async insertText(text) { value = text; },
     },
   };
@@ -1641,8 +1726,8 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
     itemUrl
   );
 
-  assert.deepEqual(fills, [`${cleanMessage}\n\n${itemUrl}`, cleanMessage]);
-  assert.equal(value, cleanMessage);
+  assert.deepEqual(fills, [`${cleanMessage}\n\n${itemUrl}`]);
+  assert.equal(value.trim(), cleanMessage);
   assert.equal(previewReady, true);
   assert.equal(result.visibleUrlRemoved, true);
   assert.equal(result.hasTargetAnchor, false);

@@ -293,6 +293,13 @@ function decodedUrl(value) {
   return result;
 }
 
+export class FacebookPostMediaRequiredError extends Error {
+  constructor(message = 'Facebook published the Chiping post without its product image link card') {
+    super(message);
+    this.name = 'FacebookPostMediaRequiredError';
+  }
+}
+
 function normalizedFacebookText(value) {
   return String(value || '')
     .normalize('NFKC')
@@ -479,9 +486,10 @@ export async function findFacebookGroupPostViaTargetAnchor(page, itemUrl) {
   };
 }
 
-export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle) {
+export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle, options = {}) {
   const normalizedTitle = normalizedFacebookText(expectedTitle);
   if (normalizedTitle.length < 8) return { found: false, postUrl: '' };
+  const requireLoadedLinkImage = options.requireLoadedLinkImage === true;
   const titleTokens = [...new Set(
     normalizedTitle.match(/[\p{L}\p{N}%]+/gu) || []
   )];
@@ -501,27 +509,53 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
   for (let index = 0; index < count; index += 1) {
     const article = articles.nth(index);
     if (!await article.isVisible().catch(() => false)) continue;
-    const [text, hrefs] = await Promise.all([
+    const [text, hrefs, mediaMetrics] = await Promise.all([
       article.innerText().catch(() => ''),
       article.locator('a[href], [data-lynx-uri]').evaluateAll((links) => links.flatMap((link) => [
         link.href,
         link.getAttribute('href'),
         link.getAttribute('data-lynx-uri'),
       ].filter(Boolean))).catch(() => []),
+      requireLoadedLinkImage
+        ? article.locator([
+            'img',
+            '[role="img"]',
+            '[data-visualcompletion="media-vc-image"]',
+            '[style*="background-image"]',
+          ].join(', ')).evaluateAll((nodes) => nodes.map((node) => {
+            const rect = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            return {
+              width: rect.width,
+              height: rect.height,
+              visible: rect.width > 0 && rect.height > 0,
+              imageLoaded: (
+                node.tagName === 'IMG'
+                && Number(node.naturalWidth) >= 180
+                && Number(node.naturalHeight) >= 120
+                && !/^data:/i.test(String(node.currentSrc || node.src || ''))
+              ) || /url\(["']?https?:\/\//i.test(style.backgroundImage || ''),
+              clickable: Boolean(node.closest('a[href], [data-lynx-uri], [role="link"]')),
+            };
+          })).catch(() => [])
+        : Promise.resolve([]),
     ]);
     const normalizedText = normalizedFacebookText(text);
     const matchesTitle = normalizedText.includes(normalizedTitle)
       || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
     const hasChipingMarker = normalizedText.includes('chiping.co.il');
+    const hasLoadedLinkImage = !requireLoadedLinkImage
+      || hasLoadedFacebookPostLinkImage(mediaMetrics);
     if (diagnosticsEnabled && (hasChipingMarker || matchesTitle)) {
       console.log(`[facebook-verifier] link-card candidate: ${JSON.stringify({
         index,
         hasChipingMarker,
+        hasLoadedLinkImage,
         missingTitleTokens: titleTokens.filter((token) => !normalizedText.includes(token)),
         postUrls: hrefs.map(normalizeFacebookGroupPostUrl).filter(Boolean),
       })}`);
     }
-    if (!matchesTitle || !hasChipingMarker) {
+    if (!matchesTitle || !hasChipingMarker || !hasLoadedLinkImage) {
       continue;
     }
     articleMatchFound = true;
@@ -531,7 +565,9 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
     if (postUrl) return { found: true, postUrl };
   }
 
-  const domResult = await page.locator('body').evaluate((body, expectedTokens) => {
+  const domResult = await page.locator('body').evaluate((body, input) => {
+    const expectedTokens = Array.isArray(input) ? input : input.tokens;
+    const requireImage = !Array.isArray(input) && input.requireLoadedLinkImage === true;
     const normalize = (value) => String(value || '')
       .normalize('NFKC')
       .replace(/[\u034f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
@@ -566,6 +602,24 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
         return false;
       }
     };
+    const hasLoadedLinkImage = (scope) => [...scope.querySelectorAll([
+      'img',
+      '[role="img"]',
+      '[data-visualcompletion="media-vc-image"]',
+      '[style*="background-image"]',
+    ].join(', '))].some((node) => {
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 180 || rect.height < 120) return false;
+      const style = getComputedStyle(node);
+      const imageLoaded = (
+        node.tagName === 'IMG'
+        && Number(node.naturalWidth) >= 180
+        && Number(node.naturalHeight) >= 120
+        && !/^data:/i.test(String(node.currentSrc || node.src || ''))
+      ) || /url\(["']?https?:\/\//i.test(style.backgroundImage || '');
+      return imageLoaded
+        && Boolean(node.closest('a[href], [data-lynx-uri], [role="link"]'));
+    });
     const diagnosticLinks = [];
     const diagnosticControls = [];
     const recordDiagnosticLinks = (hrefs) => {
@@ -615,6 +669,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
     };
 
     let timestampMarked = false;
+    let qualifiedTitleFound = false;
     const candidates = [...body.querySelectorAll('a, span, div')]
       .filter((node) => hasEveryToken(node.textContent))
       .filter((node) => ![...node.children].some((child) => hasEveryToken(child.textContent)));
@@ -622,6 +677,8 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
       let scope = candidate;
       for (let depth = 0; scope && depth < 24; depth += 1, scope = scope.parentElement) {
         if (!normalize(scope.textContent).includes('chiping.co.il')) continue;
+        if (requireImage && !hasLoadedLinkImage(scope)) continue;
+        qualifiedTitleFound = true;
         const links = [
           ...(scope.matches?.('a[href], [data-lynx-uri]') ? [scope] : []),
           ...scope.querySelectorAll('a[href], [data-lynx-uri]'),
@@ -674,13 +731,16 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle)
       }
     }
     return {
-      titleFound: candidates.length > 0,
+      titleFound: qualifiedTitleFound,
       hrefs: [],
       timestampMarked,
       diagnosticLinks: diagnosticLinks.slice(0, 30),
       diagnosticControls: diagnosticControls.slice(0, 30),
     };
-  }, titleTokens).catch(() => ({
+  }, requireLoadedLinkImage ? {
+    tokens: titleTokens,
+    requireLoadedLinkImage: true,
+  } : titleTokens).catch(() => ({
     titleFound: false,
     hrefs: [],
     timestampMarked: false,
@@ -879,7 +939,38 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
   timeoutMs = 30000,
   currentPageOnly = false,
   mediaCandidateLimit = 12,
+  requireLoadedLinkImage = false,
 } = {}) {
+  if (requireLoadedLinkImage) {
+    const searchPages = [page];
+    if (!currentPageOnly && String(expectedTitle || '').trim()) {
+      const searchUrl = `${groupUrl}/search/?q=${encodeURIComponent(String(expectedTitle).trim())}`;
+      page = await navigateFacebookForVerification(page, searchUrl);
+      await page.waitForTimeout(2000);
+      searchPages.push(page);
+    }
+    for (const candidatePage of [...new Set(searchPages)]) {
+      const completeResult = await findFacebookGroupPostViaLinkCardTitle(
+        candidatePage,
+        expectedTitle,
+        { requireLoadedLinkImage: true }
+      );
+      if (completeResult.found) return completeResult;
+    }
+    let incompleteResult = { found: false, postUrl: '' };
+    for (const candidatePage of [...new Set(searchPages)]) {
+      const result = await findFacebookGroupPostViaLinkCardTitle(candidatePage, expectedTitle);
+      if (result.found) {
+        incompleteResult = result;
+        break;
+      }
+    }
+    return {
+      found: false,
+      postUrl: incompleteResult.postUrl || '',
+      incomplete: incompleteResult.found === true,
+    };
+  }
   const result = await findFacebookGroupPostOnPage(page, {
     groupUrl,
     itemUrl,
@@ -1276,6 +1367,16 @@ export function hasLoadedFacebookPreviewVisual(visualMetrics = []) {
   ));
 }
 
+export function hasLoadedFacebookPostLinkImage(mediaMetrics = []) {
+  return (Array.isArray(mediaMetrics) ? mediaMetrics : []).some((metric) => (
+    metric?.visible === true
+    && Number(metric.width) >= 180
+    && Number(metric.height) >= 120
+    && metric.imageLoaded === true
+    && metric.clickable === true
+  ));
+}
+
 export function buildFacebookPreviewShareUrl(itemUrl, imageUrl) {
   try {
     const target = new URL(String(itemUrl || ''));
@@ -1312,7 +1413,12 @@ export async function prepareFacebookComposerLinkPreview(
     textBox
   );
 
-  await fillFacebookComposerText(page, textBox, cleanMessage);
+  // Mutate only the URL line. Re-filling the entire contenteditable can detach
+  // Facebook's pending link card even though the stale preview stays visible.
+  await textBox.click({ timeout: 10000 });
+  await page.keyboard.press('Control+End');
+  await page.keyboard.press('Shift+Home');
+  await page.keyboard.press('Backspace');
   await page.waitForTimeout(500);
   const visibleText = String(await textBox.innerText().catch(() => ''));
   const target = chipingFacebookTarget(itemUrl);
@@ -1480,8 +1586,10 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       expectedTitle,
       timeoutMs: 60000,
       currentPageOnly: false,
+      requireLoadedLinkImage: true,
     });
     if (existing.found) return { published: true, postUrl: existing.postUrl || '' };
+    if (existing.incomplete) throw new FacebookPostMediaRequiredError();
 
     const composer = await findFacebookGroupComposer(page);
     if (!composer) throw new Error('Facebook group composer was not found');
@@ -1548,9 +1656,11 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       expectedTitle,
       timeoutMs: 60000,
       currentPageOnly: false,
+      requireLoadedLinkImage: true,
     });
     await captureFacebookDebug(page, config, 'after-verification');
     if (!published.found) {
+      if (published.incomplete) throw new FacebookPostMediaRequiredError();
       throw new Error('Facebook did not expose the published group post');
     }
     return { published: true, postUrl: published.postUrl || '' };

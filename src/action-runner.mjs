@@ -1,7 +1,12 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { FacebookSessionRequiredError, postFacebookGroupJob, verifyFacebookGroupAccess } from './facebook.mjs';
+import {
+  FacebookPostMediaRequiredError,
+  FacebookSessionRequiredError,
+  postFacebookGroupJob,
+  verifyFacebookGroupAccess,
+} from './facebook.mjs';
 import { loadConfig } from './config.mjs';
 import { restoreEncryptedActionState, saveEncryptedActionState } from './action-state.mjs';
 import { JobStore } from './store.mjs';
@@ -203,10 +208,10 @@ export async function runGitHubAction(env = process.env, options = {}) {
         outcome = postUrl ? 'posted' : 'posted_unlinked';
       } catch (error) {
         const attempts = job.attempts + 1;
-        const message = error instanceof FacebookSessionRequiredError
-          ? error.message
-          : 'Facebook group post failed';
-        if (error instanceof FacebookSessionRequiredError || attempts >= config.maxAttempts) {
+        const terminalError = error instanceof FacebookSessionRequiredError
+          || error instanceof FacebookPostMediaRequiredError;
+        const message = terminalError ? error.message : 'Facebook group post failed';
+        if (terminalError || attempts >= config.maxAttempts) {
           await store.markBlocked(job.id, message);
           outcome = 'blocked';
           alert = true;

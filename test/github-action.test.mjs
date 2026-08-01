@@ -10,7 +10,10 @@ import {
   restoreEncryptedActionState,
   saveEncryptedActionState,
 } from '../src/action-state.mjs';
-import { FacebookSessionRequiredError } from '../src/facebook.mjs';
+import {
+  FacebookPostMediaRequiredError,
+  FacebookSessionRequiredError,
+} from '../src/facebook.mjs';
 
 const stateKey = 'github-action-state-key-that-is-longer-than-thirty-two-characters';
 
@@ -269,6 +272,28 @@ test('GitHub Action finalizes an exact Facebook post even when its permalink is 
     assert.equal(result.summary.posted, 1);
     assert.equal(result.summary.retry, 0);
     assert.equal(result.postUrl, '');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('GitHub Action blocks instead of duplicating a published post with no product image', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, {
+      client_payload: { payload: payload({ posting_policy: 'amazon-deals-all' }) },
+    });
+    env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+
+    const result = await runGitHubAction(env, {
+      postJob: async () => {
+        throw new FacebookPostMediaRequiredError();
+      },
+    });
+
+    assert.equal(result.outcome, 'blocked');
+    assert.equal(result.summary.blocked, 1);
+    assert.equal(result.summary.retry, 0);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
