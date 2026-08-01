@@ -1529,7 +1529,7 @@ export async function verifyFacebookPostImageDestination(page, {
     if (!candidate) continue;
 
     const image = media.nth(candidate.index);
-    if (!await image.click({ timeout: 10000 }).then(() => true).catch(() => false)) continue;
+    if (!await image.click({ timeout: 10000, force: true }).then(() => true).catch(() => false)) continue;
     const deadline = Date.now() + Math.max(3000, Math.min(Number(timeoutMs) || 10000, 20000));
     const observedUrls = new Set();
     while (Date.now() < deadline) {
