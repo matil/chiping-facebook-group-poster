@@ -1578,6 +1578,45 @@ export async function verifyFacebookPostImageDestination(page, {
     return waitForDestination();
   }
 
+  const dialogs = page.locator('[role="dialog"]');
+  const dialogCount = Math.min(await dialogs.count().catch(() => 0), 10);
+  for (let dialogIndex = 0; dialogIndex < dialogCount; dialogIndex += 1) {
+    const dialog = dialogs.nth(dialogIndex);
+    if (!await dialog.isVisible().catch(() => false)) continue;
+    const normalizedText = normalizedFacebookText(await dialog.innerText().catch(() => ''));
+    const matchesTitle = normalizedText.includes(normalizedTitle)
+      || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
+    if (!matchesTitle || !normalizedText.includes('chiping.co.il')) continue;
+    const media = dialog.locator(mediaSelector);
+    const candidates = await media.evaluateAll((nodes) => nodes.map((node, index) => {
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      const imageLoaded = (
+        node.tagName === 'IMG'
+        && Number(node.naturalWidth) >= 180
+        && Number(node.naturalHeight) >= 120
+        && !/^data:/i.test(String(node.currentSrc || node.src || ''))
+      ) || /url\(["']?https?:\/\//i.test(style.backgroundImage || '');
+      return {
+        index,
+        area: rect.width * rect.height,
+        loaded: imageLoaded && rect.width >= 180 && rect.height >= 120,
+        clickable: Boolean(node.closest('a[href], [data-lynx-uri], [role="link"]')),
+      };
+    })).catch(() => []);
+    const candidate = candidates
+      .filter((entry) => entry?.loaded === true && entry?.clickable === true)
+      .sort((left, right) => Number(right.area || 0) - Number(left.area || 0))[0];
+    if (!candidate) continue;
+    const image = media.nth(candidate.index);
+    const box = await image.boundingBox().catch(() => null);
+    if (!box || !page.mouse?.click) continue;
+    const clicked = await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+      .then(() => true)
+      .catch(() => false);
+    if (clicked) return waitForDestination();
+  }
+
   const modalImagePoint = await page.locator('body').evaluate((body, tokens) => {
     const normalize = (value) => String(value || '')
       .normalize('NFKC')
