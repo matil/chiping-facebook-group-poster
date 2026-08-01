@@ -490,6 +490,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle,
   const normalizedTitle = normalizedFacebookText(expectedTitle);
   if (normalizedTitle.length < 8) return { found: false, postUrl: '' };
   const requireLoadedLinkImage = options.requireLoadedLinkImage === true;
+  const requiredTarget = chipingFacebookTarget(options.requiredItemUrl);
   const titleTokens = [...new Set(
     normalizedTitle.match(/[\p{L}\p{N}%]+/gu) || []
   )];
@@ -525,6 +526,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle,
           ].join(', ')).evaluateAll((nodes) => nodes.map((node) => {
             const rect = node.getBoundingClientRect();
             const style = getComputedStyle(node);
+            const link = node.closest('a[href], [data-lynx-uri], [role="link"]');
             return {
               width: rect.width,
               height: rect.height,
@@ -535,7 +537,12 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle,
                 && Number(node.naturalHeight) >= 120
                 && !/^data:/i.test(String(node.currentSrc || node.src || ''))
               ) || /url\(["']?https?:\/\//i.test(style.backgroundImage || ''),
-              clickable: Boolean(node.closest('a[href], [data-lynx-uri], [role="link"]')),
+              clickable: Boolean(link),
+              clickTargets: link ? [
+                link.href,
+                link.getAttribute('href'),
+                link.getAttribute('data-lynx-uri'),
+              ].map((value) => String(value || '')).filter(Boolean) : [],
             };
           })).catch(() => [])
         : Promise.resolve([]),
@@ -545,7 +552,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle,
       || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
     const hasChipingMarker = normalizedText.includes('chiping.co.il');
     const hasLoadedLinkImage = !requireLoadedLinkImage
-      || hasLoadedFacebookPostLinkImage(mediaMetrics);
+      || hasLoadedFacebookPostLinkImage(mediaMetrics, requiredTarget);
     if (diagnosticsEnabled && (hasChipingMarker || matchesTitle)) {
       console.log(`[facebook-verifier] link-card candidate: ${JSON.stringify({
         index,
@@ -568,6 +575,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle,
   const domResult = await page.locator('body').evaluate((body, input) => {
     const expectedTokens = Array.isArray(input) ? input : input.tokens;
     const requireImage = !Array.isArray(input) && input.requireLoadedLinkImage === true;
+    const requiredTarget = !Array.isArray(input) ? input.requiredTarget : null;
     const normalize = (value) => String(value || '')
       .normalize('NFKC')
       .replace(/[\u034f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
@@ -602,6 +610,35 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle,
         return false;
       }
     };
+    const decode = (value) => {
+      let output = String(value || '');
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const next = decodeURIComponent(output);
+          if (next === output) break;
+          output = next;
+        } catch {
+          break;
+        }
+      }
+      return output;
+    };
+    const referencesTarget = (value) => {
+      if (!requiredTarget) return true;
+      const decoded = decode(value);
+      const references = requiredTarget.type === 'item'
+        ? [
+            `www.chiping.co.il/?item=${requiredTarget.value}`,
+            `chiping.co.il/?item=${requiredTarget.value}`,
+          ]
+        : ['www.chiping.co.il/?coupons=1', 'chiping.co.il/?coupons=1'];
+      return references.some((reference) => {
+        const offset = decoded.indexOf(reference);
+        if (offset < 0) return false;
+        const nextCharacter = decoded[offset + reference.length] || '';
+        return !nextCharacter || /[&#\s"'<>]/.test(nextCharacter);
+      });
+    };
     const hasLoadedLinkImage = (scope) => [...scope.querySelectorAll([
       'img',
       '[role="img"]',
@@ -617,8 +654,10 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle,
         && Number(node.naturalHeight) >= 120
         && !/^data:/i.test(String(node.currentSrc || node.src || ''))
       ) || /url\(["']?https?:\/\//i.test(style.backgroundImage || '');
-      return imageLoaded
-        && Boolean(node.closest('a[href], [data-lynx-uri], [role="link"]'));
+      const link = node.closest('a[href], [data-lynx-uri], [role="link"]');
+      if (!imageLoaded || !link) return false;
+      return [link.href, link.getAttribute('href'), link.getAttribute('data-lynx-uri')]
+        .some(referencesTarget);
     });
     const diagnosticLinks = [];
     const diagnosticControls = [];
@@ -740,6 +779,7 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle,
   }, requireLoadedLinkImage ? {
     tokens: titleTokens,
     requireLoadedLinkImage: true,
+    requiredTarget,
   } : titleTokens).catch(() => ({
     titleFound: false,
     hrefs: [],
@@ -945,7 +985,7 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
     const completeCurrent = await findFacebookGroupPostViaLinkCardTitle(
       page,
       expectedTitle,
-      { requireLoadedLinkImage: true }
+      { requireLoadedLinkImage: true, requiredItemUrl: itemUrl }
     );
     if (completeCurrent.found) return completeCurrent;
     const incompleteCurrent = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
@@ -966,7 +1006,7 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
       completeSearch = await findFacebookGroupPostViaLinkCardTitle(
         page,
         expectedTitle,
-        { requireLoadedLinkImage: true }
+        { requireLoadedLinkImage: true, requiredItemUrl: itemUrl }
       );
       if (completeSearch.found) return completeSearch;
       incompleteSearch = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
@@ -1413,13 +1453,15 @@ export function hasLoadedFacebookPreviewVisual(visualMetrics = []) {
   ));
 }
 
-export function hasLoadedFacebookPostLinkImage(mediaMetrics = []) {
+export function hasLoadedFacebookPostLinkImage(mediaMetrics = [], requiredTarget = null) {
   return (Array.isArray(mediaMetrics) ? mediaMetrics : []).some((metric) => (
     metric?.visible === true
     && Number(metric.width) >= 180
     && Number(metric.height) >= 120
     && metric.imageLoaded === true
     && metric.clickable === true
+    && (!requiredTarget || (Array.isArray(metric.clickTargets) ? metric.clickTargets : [])
+      .some((value) => referencesExactChipingTarget(value, requiredTarget)))
   ));
 }
 

@@ -363,6 +363,7 @@ test('Facebook post verification checks the current feed before opening search',
             visible: true,
             imageLoaded: true,
             clickable: true,
+            clickTargets: ['https://www.chiping.co.il/?item=10463&fb_preview=fresh'],
           }];
         },
       };
@@ -1206,6 +1207,23 @@ test('published Facebook posts require a loaded clickable link-card image', () =
     imageLoaded: true,
     clickable: false,
   }]), false);
+  const target = { type: 'item', value: '10463' };
+  assert.equal(hasLoadedFacebookPostLinkImage([{
+    width: 500,
+    height: 262,
+    visible: true,
+    imageLoaded: true,
+    clickable: true,
+    clickTargets: ['https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.chiping.co.il%2F%3Fitem%3D10463%26fb_preview%3Dfresh'],
+  }], target), true);
+  assert.equal(hasLoadedFacebookPostLinkImage([{
+    width: 500,
+    height: 262,
+    visible: true,
+    imageLoaded: true,
+    clickable: true,
+    clickTargets: ['https://www.chiping.co.il/?item=10464'],
+  }], target), false);
 });
 
 test('Facebook composer stages a versioned URL while preserving the clean item target', () => {
