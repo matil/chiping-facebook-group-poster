@@ -994,8 +994,20 @@ export async function validateChipingLinkPreviewMetadata(
   if (new URL(canonicalUrl).href !== new URL(String(itemUrl || '')).href) {
     throw new Error('Chiping link preview has the wrong destination URL');
   }
-  if (new URL(imageUrl).href !== new URL(String(expectedImageUrl || '')).href) {
-    throw new Error('Chiping link preview has not exposed the prepared Facebook image');
+  const actualImage = new URL(imageUrl);
+  const expectedImage = new URL(String(expectedImageUrl || ''));
+  const itemId = new URL(String(itemUrl || '')).searchParams.get('item') || '';
+  const currentPreparedImage = /^\d+$/.test(itemId)
+    && actualImage.protocol === 'https:'
+    && actualImage.hostname === 'www.chiping.co.il'
+    && actualImage.pathname === `/facebook-images/${itemId}.jpg`;
+  if (actualImage.href !== expectedImage.href && !currentPreparedImage) {
+    const error = new Error('Chiping link preview has not exposed the prepared Facebook image');
+    error.previewMetadata = {
+      expectedImageUrl: expectedImage.href,
+      imageUrl: actualImage.href,
+    };
+    throw error;
   }
   if (imageWidth !== 1200 || imageHeight !== 630) {
     throw new Error('Chiping link preview image must be 1200x630');
@@ -1445,6 +1457,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     } catch (error) {
       await captureFacebookDebug(page, config, 'link-metadata-verification-failed', {
         error: String(error?.message || 'Chiping link preview metadata verification failed').slice(0, 500),
+        metadataProbe: error?.previewMetadata || null,
       });
       throw error;
     }

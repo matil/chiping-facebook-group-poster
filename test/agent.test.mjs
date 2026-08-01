@@ -848,6 +848,44 @@ test('Chiping link-preview metadata rejects a stale product image', async () => 
   );
 });
 
+test('Chiping link-preview metadata accepts a newer generated image version for the same item', async () => {
+  const itemUrl = 'https://www.chiping.co.il/?item=10432';
+  const currentImageUrl = 'https://www.chiping.co.il/facebook-images/10432.jpg?v=current';
+  const fetchImpl = async () => new Response(`<!doctype html><html><head>
+    <meta property="og:url" content="${itemUrl}">
+    <meta property="og:image" content="${currentImageUrl}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+  </head></html>`);
+
+  const result = await validateChipingLinkPreviewMetadata(
+    itemUrl,
+    'https://www.chiping.co.il/facebook-images/10432.jpg?v=queued',
+    fetchImpl
+  );
+
+  assert.equal(result.imageUrl, currentImageUrl);
+});
+
+test('Chiping link-preview metadata rejects a generated image belonging to another item', async () => {
+  const itemUrl = 'https://www.chiping.co.il/?item=10432';
+  const fetchImpl = async () => new Response(`<!doctype html><html><head>
+    <meta property="og:url" content="${itemUrl}">
+    <meta property="og:image" content="https://www.chiping.co.il/facebook-images/10431.jpg?v=current">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+  </head></html>`);
+
+  await assert.rejects(
+    validateChipingLinkPreviewMetadata(
+      itemUrl,
+      'https://www.chiping.co.il/facebook-images/10432.jpg?v=queued',
+      fetchImpl
+    ),
+    /has not exposed the prepared Facebook image/
+  );
+});
+
 test('Chiping link-preview metadata retries a transient stale crawler response', async () => {
   const itemUrl = 'https://www.chiping.co.il/?item=10486';
   const imageUrl = 'https://cdn.example.test/facebook-link-10486.jpg';
