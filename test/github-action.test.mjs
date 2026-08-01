@@ -541,6 +541,7 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
   assert.match(verificationWorkflow, /FACEBOOK_VERIFY_CURRENT_PAGE_ONLY: 'false'/);
   assert.match(verificationWorkflow, /FACEBOOK_VERIFY_SORT_NEWEST: 'true'/);
   assert.match(verificationWorkflow, /FACEBOOK_VERIFY_MEDIA_FALLBACK: 'true'/);
+  assert.match(verificationWorkflow, /FACEBOOK_VERIFY_REQUIRE_IMAGE: \$\{\{ inputs\.require_image \}\}/);
   assert.match(verificationWorkflow, /actions\/upload-artifact@v4/);
   assert.match(verificationWorkflow, /Post URL:/);
   assert.doesNotMatch(verificationWorkflow, /FACEBOOK_ACTION_POSTING_ENABLED/);

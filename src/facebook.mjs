@@ -1013,6 +1013,7 @@ export async function findFacebookGroupPost(config, itemUrl, options = {}) {
       timeoutMs: options.timeoutMs,
       currentPageOnly: options.currentPageOnly === true,
       mediaCandidateLimit: options.mediaCandidateLimit,
+      requireLoadedLinkImage: options.requireLoadedLinkImage === true,
     });
     if (options.screenshotPath) {
       await page.screenshot({ path: options.screenshotPath, fullPage: true }).catch(() => {});

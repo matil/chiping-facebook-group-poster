@@ -37,6 +37,9 @@ export async function verifyFacebookPost(env = process.env, options = {}) {
       currentPageOnly: /^(?:1|true|yes|on)$/i.test(String(env.FACEBOOK_VERIFY_CURRENT_PAGE_ONLY || '')),
       sortNewest: /^(?:1|true|yes|on)$/i.test(String(env.FACEBOOK_VERIFY_SORT_NEWEST || '')),
       mediaFallback: /^(?:1|true|yes|on)$/i.test(String(env.FACEBOOK_VERIFY_MEDIA_FALLBACK || '')),
+      requireLoadedLinkImage: /^(?:1|true|yes|on)$/i.test(
+        String(env.FACEBOOK_VERIFY_REQUIRE_IMAGE || '')
+      ),
       expectedTitle: String(env.FACEBOOK_VERIFY_EXPECTED_TITLE || '').trim() || undefined,
       screenshotPath: String(env.FACEBOOK_VERIFY_SCREENSHOT_PATH || '').trim() || undefined,
     }
