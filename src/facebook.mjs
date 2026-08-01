@@ -1423,7 +1423,11 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
     await sortFacebookGroupFeedNewest(page);
-    const expectedTitle = await fetchChipingLinkPreviewTitle(
+    const messageTitle = String(job.payload.message || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) || '';
+    const expectedTitle = messageTitle || await fetchChipingLinkPreviewTitle(
       job.payload.itemUrl,
       fetchImpl
     ).catch(() => '');

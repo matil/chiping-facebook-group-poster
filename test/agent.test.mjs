@@ -1084,6 +1084,8 @@ test('Facebook publisher uses a clickable link preview instead of uploading a ph
   );
   assert.match(publisher, /waitForChipingLinkPreviewMetadata/);
   assert.match(publisher, /prepareFacebookComposerLinkPreview/);
+  assert.match(publisher, /const messageTitle = String\(job\.payload\.message \|\| ''\)/);
+  assert.match(publisher, /const expectedTitle = messageTitle \|\| await fetchChipingLinkPreviewTitle/);
   assert.match(publisher, /if \(existing\.found\)/);
   const postSubmitVerification = publisher.slice(publisher.indexOf('await postButton.click()'));
   assert.match(postSubmitVerification, /timeoutMs: 60000/);
