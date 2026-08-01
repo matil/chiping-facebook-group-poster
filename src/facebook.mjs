@@ -1198,15 +1198,19 @@ export async function waitForFacebookLinkPreview(
             visible: rect.width > 0 && rect.height > 0,
             tagName: node.tagName,
             role: node.getAttribute('role') || '',
+            imageLoaded: (
+              node.tagName === 'IMG'
+              && Number(node.naturalWidth) >= 180
+              && Number(node.naturalHeight) >= 120
+              && !/^data:/i.test(String(node.currentSrc || node.src || ''))
+            ) || /url\(["']?https?:\/\//i.test(getComputedStyle(node).backgroundImage || ''),
           };
         })
       )).catch(() => []),
     ]);
     const hasTargetAnchor = hrefs.some((href) => referencesExactChipingTarget(href, chipingTarget));
     const hostOccurrences = String(dialogText || '').toLowerCase().split(host).length - 1;
-    const hasLargePreviewVisual = visualMetrics.some((metric) => (
-      metric.visible && metric.width >= 180 && metric.height >= 120
-    ));
+    const hasLargePreviewVisual = hasLoadedFacebookPreviewVisual(visualMetrics);
     lastProbe = {
       hasTargetAnchor,
       hostOccurrences,
@@ -1261,6 +1265,33 @@ export async function waitForFacebookLinkPreview(
     cardCandidates,
   };
   throw error;
+}
+
+export function hasLoadedFacebookPreviewVisual(visualMetrics = []) {
+  return (Array.isArray(visualMetrics) ? visualMetrics : []).some((metric) => (
+    metric?.visible === true
+    && Number(metric.width) >= 180
+    && Number(metric.height) >= 120
+    && metric.imageLoaded !== false
+  ));
+}
+
+export function buildFacebookPreviewShareUrl(itemUrl, imageUrl) {
+  try {
+    const target = new URL(String(itemUrl || ''));
+    const image = new URL(String(imageUrl || ''));
+    const version = String(image.searchParams.get('v') || '').trim();
+    if (
+      target.hostname === 'www.chiping.co.il'
+      && /^\d+$/.test(String(target.searchParams.get('item') || ''))
+      && version
+    ) {
+      target.searchParams.set('fb_preview', version.slice(0, 64));
+    }
+    return target.href;
+  } catch {
+    return String(itemUrl || '').trim();
+  }
 }
 
 export async function prepareFacebookComposerLinkPreview(
@@ -1481,7 +1512,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
         page,
         textBox,
         String(job.payload.message),
-        job.payload.itemUrl,
+        buildFacebookPreviewShareUrl(job.payload.itemUrl, job.payload.imageUrl),
         30000
       );
     } catch (error) {

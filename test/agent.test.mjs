@@ -8,6 +8,7 @@ import { loadConfig, normalizeGroupUrl } from '../src/config.mjs';
 import { createServer } from '../src/server.mjs';
 import {
   attachFacebookComposerImage,
+  buildFacebookPreviewShareUrl,
   FacebookSessionRequiredError,
   fillFacebookComposerText,
   findFacebookComposerTextBox,
@@ -16,6 +17,7 @@ import {
   findFacebookGroupPostViaTargetAnchor,
   findFacebookGroupPostWithMediaFallback,
   findFacebookGroupComposer,
+  hasLoadedFacebookPreviewVisual,
   loginIfNeeded,
   normalizeFacebookGroupPostUrl,
   prepareFacebookComposerLinkPreview,
@@ -1049,6 +1051,30 @@ test('Facebook composer requires a rendered Chiping link card before publishing'
   );
   assert.equal(result.hasTargetAnchor, true);
   assert.equal(result.visualMetrics[0].width, 540);
+});
+
+test('Facebook composer rejects a large placeholder until the preview image is loaded', () => {
+  const placeholder = [{
+    width: 500,
+    height: 261,
+    visible: true,
+    tagName: 'IMG',
+    imageLoaded: false,
+  }];
+  const loaded = [{ ...placeholder[0], imageLoaded: true }];
+
+  assert.equal(hasLoadedFacebookPreviewVisual(placeholder), false);
+  assert.equal(hasLoadedFacebookPreviewVisual(loaded), true);
+});
+
+test('Facebook composer stages a versioned URL while preserving the clean item target', () => {
+  assert.equal(
+    buildFacebookPreviewShareUrl(
+      'https://www.chiping.co.il/?item=10432',
+      'https://www.chiping.co.il/facebook-images/10432.jpg?v=411b61b15fcaab1e'
+    ),
+    'https://www.chiping.co.il/?item=10432&fb_preview=411b61b15fcaab1e'
+  );
 });
 
 test('Facebook composer recognizes a CSS-backed link card around a contained product image', async () => {
