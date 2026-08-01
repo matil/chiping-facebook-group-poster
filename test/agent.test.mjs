@@ -26,6 +26,7 @@ import {
   selectFacebookComposerText,
   sortFacebookGroupFeedNewest,
   validateChipingLinkPreviewMetadata,
+  verifyFacebookPostImageDestination,
   waitForChipingLinkPreviewMetadata,
   waitForFacebookComposerToClose,
   waitForFacebookLinkPreview,
@@ -1226,6 +1227,47 @@ test('published Facebook posts require a loaded clickable link-card image', () =
   }], target), false);
 });
 
+test('Facebook product image click opens the exact Chiping item', async () => {
+  const title = '\u05e2\u05e8\u05db\u05ea \u05de\u05e0\u05d9\u05e7\u05d5\u05e8 \u05d5\u05e4\u05d3\u05d9\u05e7\u05d5\u05e8 Beurer MP 64';
+  let currentUrl = 'https://www.facebook.com/groups/chiping/posts/1760303761641420/';
+  const image = {
+    async click() {
+      currentUrl = 'https://www.chiping.co.il/?item=10463&fbclid=verified';
+    },
+  };
+  const media = {
+    async evaluateAll() {
+      return [{ index: 0, loaded: true, clickable: true }];
+    },
+    nth() { return image; },
+  };
+  const article = {
+    async isVisible() { return true; },
+    async innerText() { return `${title}\nCHIPING.CO.IL`; },
+    locator() { return media; },
+  };
+  const page = {
+    url() { return currentUrl; },
+    context() { return { pages: () => [page] }; },
+    async waitForTimeout() {},
+    locator(selector) {
+      assert.equal(selector, '[role="article"]');
+      return {
+        async count() { return 1; },
+        nth() { return article; },
+      };
+    },
+  };
+
+  assert.deepEqual(await verifyFacebookPostImageDestination(page, {
+    expectedTitle: title,
+    itemUrl: 'https://www.chiping.co.il/?item=10463',
+  }), {
+    verified: true,
+    destinationUrl: 'https://www.chiping.co.il/?item=10463&fbclid=verified',
+  });
+});
+
 test('Facebook composer stages a versioned URL while preserving the clean item target', () => {
   assert.equal(
     buildFacebookPreviewShareUrl(
@@ -1352,6 +1394,7 @@ test('Facebook publisher uses a clickable link preview instead of uploading a ph
   assert.match(publisher, /const messageTitle = String\(job\.payload\.message \|\| ''\)/);
   assert.match(publisher, /const expectedTitle = messageTitle \|\| await fetchChipingLinkPreviewTitle/);
   assert.match(publisher, /if \(existing\.found\)/);
+  assert.match(publisher, /verifyFacebookPostImageDestination/);
   assert.match(
     publisher,
     /if \(existing\.incomplete\)[\s\S]*page = await navigateFacebookForVerification\(page, config\.groupUrl\);[\s\S]*const composer = await findFacebookGroupComposer\(page\)/

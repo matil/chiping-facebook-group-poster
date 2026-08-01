@@ -40,6 +40,9 @@ export async function verifyFacebookPost(env = process.env, options = {}) {
       requireLoadedLinkImage: /^(?:1|true|yes|on)$/i.test(
         String(env.FACEBOOK_VERIFY_REQUIRE_IMAGE || '')
       ),
+      verifyImageDestination: /^(?:1|true|yes|on)$/i.test(
+        String(env.FACEBOOK_VERIFY_REQUIRE_IMAGE || '')
+      ),
       expectedTitle: String(env.FACEBOOK_VERIFY_EXPECTED_TITLE || '').trim() || undefined,
       screenshotPath: String(env.FACEBOOK_VERIFY_SCREENSHOT_PATH || '').trim() || undefined,
     }

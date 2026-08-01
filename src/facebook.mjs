@@ -985,7 +985,7 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
     const completeCurrent = await findFacebookGroupPostViaLinkCardTitle(
       page,
       expectedTitle,
-      { requireLoadedLinkImage: true, requiredItemUrl: itemUrl }
+      { requireLoadedLinkImage: true }
     );
     if (completeCurrent.found) return completeCurrent;
     const incompleteCurrent = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
@@ -1006,7 +1006,7 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
       completeSearch = await findFacebookGroupPostViaLinkCardTitle(
         page,
         expectedTitle,
-        { requireLoadedLinkImage: true, requiredItemUrl: itemUrl }
+        { requireLoadedLinkImage: true }
       );
       if (completeSearch.found) return completeSearch;
       incompleteSearch = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
@@ -1064,6 +1064,18 @@ export async function findFacebookGroupPost(config, itemUrl, options = {}) {
     });
     if (options.screenshotPath) {
       await page.screenshot({ path: options.screenshotPath, fullPage: true }).catch(() => {});
+    }
+    if (result.found && options.verifyImageDestination === true) {
+      const destination = await verifyFacebookPostImageDestination(page, {
+        expectedTitle,
+        itemUrl,
+      });
+      return {
+        ...result,
+        found: destination.verified === true,
+        imageDestinationVerified: destination.verified === true,
+        imageDestinationUrl: destination.destinationUrl || '',
+      };
     }
     return result;
   } finally {
@@ -1465,6 +1477,69 @@ export function hasLoadedFacebookPostLinkImage(mediaMetrics = [], requiredTarget
   ));
 }
 
+export async function verifyFacebookPostImageDestination(page, {
+  expectedTitle = '',
+  itemUrl = '',
+  timeoutMs = 10000,
+} = {}) {
+  const target = chipingFacebookTarget(itemUrl);
+  const normalizedTitle = normalizedFacebookText(expectedTitle);
+  if (!target || normalizedTitle.length < 8) return { verified: false, destinationUrl: '' };
+  const titleTokens = [...new Set(normalizedTitle.match(/[\p{L}\p{N}%]+/gu) || [])];
+  const mediaSelector = [
+    'img',
+    '[role="img"]',
+    '[data-visualcompletion="media-vc-image"]',
+    '[style*="background-image"]',
+  ].join(', ');
+  const articles = page.locator('[role="article"]');
+  const articleCount = Math.min(await articles.count().catch(() => 0), 50);
+  for (let articleIndex = 0; articleIndex < articleCount; articleIndex += 1) {
+    const article = articles.nth(articleIndex);
+    if (!await article.isVisible().catch(() => false)) continue;
+    const normalizedText = normalizedFacebookText(await article.innerText().catch(() => ''));
+    const matchesTitle = normalizedText.includes(normalizedTitle)
+      || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
+    if (!matchesTitle || !normalizedText.includes('chiping.co.il')) continue;
+
+    const media = article.locator(mediaSelector);
+    const candidates = await media.evaluateAll((nodes) => nodes.map((node, index) => {
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      const imageLoaded = (
+        node.tagName === 'IMG'
+        && Number(node.naturalWidth) >= 180
+        && Number(node.naturalHeight) >= 120
+        && !/^data:/i.test(String(node.currentSrc || node.src || ''))
+      ) || /url\(["']?https?:\/\//i.test(style.backgroundImage || '');
+      return {
+        index,
+        loaded: imageLoaded && rect.width >= 180 && rect.height >= 120,
+        clickable: Boolean(node.closest('a[href], [data-lynx-uri], [role="link"]')),
+      };
+    })).catch(() => []);
+    const candidate = candidates.find((entry) => entry?.loaded === true && entry?.clickable === true);
+    if (!candidate) continue;
+
+    const image = media.nth(candidate.index);
+    if (!await image.click({ timeout: 10000 }).then(() => true).catch(() => false)) continue;
+    const deadline = Date.now() + Math.max(3000, Math.min(Number(timeoutMs) || 10000, 20000));
+    while (Date.now() < deadline) {
+      const context = typeof page.context === 'function' ? page.context() : null;
+      const pages = context?.pages?.() || [page];
+      for (const candidatePage of pages) {
+        const destinationUrl = String(candidatePage?.url?.() || '');
+        if (referencesExactChipingTarget(destinationUrl, target)) {
+          return { verified: true, destinationUrl };
+        }
+      }
+      await page.waitForTimeout(250).catch(() => {});
+    }
+    return { verified: false, destinationUrl: '' };
+  }
+  return { verified: false, destinationUrl: '' };
+}
+
 export function buildFacebookPreviewShareUrl(itemUrl, imageUrl) {
   try {
     const target = new URL(String(itemUrl || ''));
@@ -1674,7 +1749,18 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       currentPageOnly: false,
       requireLoadedLinkImage: true,
     });
-    if (existing.found) return { published: true, postUrl: existing.postUrl || '' };
+    if (existing.found) {
+      const destination = await verifyFacebookPostImageDestination(page, {
+        expectedTitle,
+        itemUrl: job.payload.itemUrl,
+      });
+      if (!destination.verified) {
+        throw new FacebookPostMediaRequiredError(
+          'Facebook product image does not open the exact Chiping item'
+        );
+      }
+      return { published: true, postUrl: existing.postUrl || '' };
+    }
     if (existing.incomplete) throw new FacebookPostMediaRequiredError();
 
     // Verification may leave the active tab on Facebook's group-search route.
@@ -1755,6 +1841,15 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     if (!published.found) {
       if (published.incomplete) throw new FacebookPostMediaRequiredError();
       throw new Error('Facebook did not expose the published group post');
+    }
+    const destination = await verifyFacebookPostImageDestination(page, {
+      expectedTitle,
+      itemUrl: job.payload.itemUrl,
+    });
+    if (!destination.verified) {
+      throw new FacebookPostMediaRequiredError(
+        'Facebook product image does not open the exact Chiping item'
+      );
     }
     return { published: true, postUrl: published.postUrl || '' };
   } catch (error) {
