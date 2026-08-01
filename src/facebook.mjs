@@ -1529,7 +1529,20 @@ export async function verifyFacebookPostImageDestination(page, {
     if (!candidate) continue;
 
     const image = media.nth(candidate.index);
-    if (!await image.click({ timeout: 10000, force: true }).then(() => true).catch(() => false)) continue;
+    let clicked = typeof image.evaluate === 'function'
+      ? await image.evaluate((node) => {
+        const link = node.closest('a[href], [data-lynx-uri], [role="link"]');
+        if (!link) return false;
+        link.click();
+        return true;
+      }).catch(() => false)
+      : false;
+    if (!clicked) {
+      clicked = await image.click({ timeout: 10000, force: true })
+        .then(() => true)
+        .catch(() => false);
+    }
+    if (!clicked) continue;
     const deadline = Date.now() + Math.max(3000, Math.min(Number(timeoutMs) || 10000, 20000));
     const observedUrls = new Set();
     while (Date.now() < deadline) {
