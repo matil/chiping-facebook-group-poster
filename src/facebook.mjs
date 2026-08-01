@@ -1413,9 +1413,7 @@ export async function prepareFacebookComposerLinkPreview(
   const cleanMessage = cleanFacebookComposerMessage(message, itemUrl);
   if (!cleanMessage) throw new Error('Facebook post text is empty after removing the preview URL');
 
-  // Let Facebook create one dedicated URL block before adding any post text.
-  // Multiple editor blocks make Ctrl+A operate on only the active paragraph.
-  await fillFacebookComposerText(page, textBox, itemUrl);
+  await fillFacebookComposerText(page, textBox, `${cleanMessage}\n\n${itemUrl}`);
   const stagedPreview = await waitForFacebookLinkPreview(
     page,
     itemUrl,
@@ -1423,11 +1421,7 @@ export async function prepareFacebookComposerLinkPreview(
     textBox
   );
 
-  // Use real keyboard input after the card is attached. Playwright fill() can
-  // recreate Facebook's editor state and silently detach the pending card.
-  await textBox.click({ timeout: 10000 });
-  await page.keyboard.press('Control+A');
-  await page.keyboard.insertText(cleanMessage);
+  await fillFacebookComposerText(page, textBox, cleanMessage);
   await page.waitForTimeout(500);
   const visibleText = String(await textBox.innerText().catch(() => ''));
   const target = chipingFacebookTarget(itemUrl);
