@@ -1542,22 +1542,33 @@ export async function verifyFacebookPostImageDestination(page, {
       ) || /url\(["']?https?:\/\//i.test(style.backgroundImage || '');
       return {
         index,
+        area: rect.width * rect.height,
         loaded: imageLoaded && rect.width >= 180 && rect.height >= 120,
         clickable: Boolean(node.closest('a[href], [data-lynx-uri], [role="link"]')),
       };
     })).catch(() => []);
-    const candidate = candidates.find((entry) => entry?.loaded === true && entry?.clickable === true);
+    const candidate = candidates
+      .filter((entry) => entry?.loaded === true && entry?.clickable === true)
+      .sort((left, right) => Number(right.area || 0) - Number(left.area || 0))[0];
     if (!candidate) continue;
 
     const image = media.nth(candidate.index);
-    let clicked = typeof image.evaluate === 'function'
-      ? await image.evaluate((node) => {
+    const box = typeof image.boundingBox === 'function'
+      ? await image.boundingBox().catch(() => null)
+      : null;
+    let clicked = box && page.mouse?.click
+      ? await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+        .then(() => true)
+        .catch(() => false)
+      : false;
+    if (!clicked && typeof image.evaluate === 'function') {
+      clicked = await image.evaluate((node) => {
         const link = node.closest('a[href], [data-lynx-uri], [role="link"]');
         if (!link) return false;
         link.click();
         return true;
-      }).catch(() => true)
-      : false;
+      }).catch(() => true);
+    }
     if (!clicked) {
       clicked = await image.click({ timeout: 10000, force: true })
         .then(() => true)
@@ -1567,7 +1578,7 @@ export async function verifyFacebookPostImageDestination(page, {
     return waitForDestination();
   }
 
-  const clickedFromModal = await page.locator('body').evaluate((body, tokens) => {
+  const modalImagePoint = await page.locator('body').evaluate((body, tokens) => {
     const normalize = (value) => String(value || '')
       .normalize('NFKC')
       .replace(/[\u034f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
@@ -1591,6 +1602,7 @@ export async function verifyFacebookPostImageDestination(page, {
           '[data-visualcompletion="media-vc-image"]',
           '[style*="background-image"]',
         ].join(', '));
+        const loadedMedia = [];
         for (const node of mediaNodes) {
           const rect = node.getBoundingClientRect();
           if (rect.width < 180 || rect.height < 120) continue;
@@ -1603,14 +1615,24 @@ export async function verifyFacebookPostImageDestination(page, {
           ) || /url\(["']?https?:\/\//i.test(style.backgroundImage || '');
           const link = node.closest('a[href], [data-lynx-uri], [role="link"]');
           if (!imageLoaded || !link) continue;
-          link.click();
-          return true;
+          loadedMedia.push({
+            x: rect.x + rect.width / 2,
+            y: rect.y + rect.height / 2,
+            area: rect.width * rect.height,
+          });
         }
+        loadedMedia.sort((left, right) => right.area - left.area);
+        if (loadedMedia.length) return loadedMedia[0];
       }
     }
-    return false;
-  }, titleTokens).catch(() => true);
-  if (clickedFromModal) return waitForDestination();
+    return null;
+  }, titleTokens).catch(() => null);
+  if (modalImagePoint && page.mouse?.click) {
+    const clickedFromModal = await page.mouse.click(modalImagePoint.x, modalImagePoint.y)
+      .then(() => true)
+      .catch(() => false);
+    if (clickedFromModal) return waitForDestination();
+  }
   return { verified: false, destinationUrl: '', observedUrls: [] };
 }
 
