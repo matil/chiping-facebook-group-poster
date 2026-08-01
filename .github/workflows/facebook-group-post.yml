@@ -29,6 +29,10 @@ on:
         description: Verified Facebook permalink for confirm_product_id
         required: false
         type: string
+      finalize_unlinked_product_id:
+        description: Finalize one reviewed post whose permalink or media cannot be recovered
+        required: false
+        type: string
 
 permissions:
   actions: write
@@ -104,6 +108,7 @@ jobs:
           FACEBOOK_ACTION_RESET_PRODUCT_ID: ${{ inputs.reset_product_id }}
           FACEBOOK_ACTION_CONFIRM_PRODUCT_ID: ${{ inputs.confirm_product_id }}
           FACEBOOK_ACTION_CONFIRM_POST_URL: ${{ inputs.confirm_post_url }}
+          FACEBOOK_ACTION_FINALIZE_UNLINKED_PRODUCT_ID: ${{ inputs.finalize_unlinked_product_id }}
           FACEBOOK_LOGIN_EMAIL_FILE: ${{ runner.temp }}/chiping-facebook-secrets/email
           FACEBOOK_LOGIN_PASSWORD_FILE: ${{ runner.temp }}/chiping-facebook-secrets/password
           FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}

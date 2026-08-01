@@ -156,6 +156,9 @@ export async function runGitHubAction(env = process.env, options = {}) {
   }
   const confirmProductId = String(env.FACEBOOK_ACTION_CONFIRM_PRODUCT_ID || '').trim();
   const confirmPostUrl = String(env.FACEBOOK_ACTION_CONFIRM_POST_URL || '').trim();
+  const finalizeUnlinkedProductId = String(
+    env.FACEBOOK_ACTION_FINALIZE_UNLINKED_PRODUCT_ID || ''
+  ).trim();
   if (confirmProductId || confirmPostUrl) {
     if (!/^\d+$/.test(confirmProductId) || !validFacebookPostUrl(confirmPostUrl)) {
       throw new Error('Facebook post confirmation is invalid');
@@ -230,6 +233,15 @@ export async function runGitHubAction(env = process.env, options = {}) {
       dataDir: config.dataDir,
       storageStateFile: config.storageStateFile,
     });
+  }
+  if (finalizeUnlinkedProductId) {
+    if (!/^\d+$/.test(finalizeUnlinkedProductId)) {
+      throw new Error('FACEBOOK_ACTION_FINALIZE_UNLINKED_PRODUCT_ID must be numeric');
+    }
+    const finalizedCount = await store.finalizeProductPostedUnlinked(finalizeUnlinkedProductId);
+    changed ||= finalizedCount > 0;
+    confirmed = finalizedCount > 0;
+    if (confirmed) outcome = 'finalized_unlinked';
   }
   const blockedJob = [...store.state.order]
     .reverse()

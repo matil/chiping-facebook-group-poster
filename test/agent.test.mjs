@@ -1923,6 +1923,22 @@ test('job store can confirm a recovered Facebook permalink without reposting', a
   }
 });
 
+test('job store can finalize one reviewed product without a permalink', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    const queued = await store.enqueue(payload());
+    await store.markBlocked(queued.job.id, 'missing image');
+
+    assert.equal(await store.finalizeProductPostedUnlinked('9301'), 1);
+    assert.equal(store.state.jobs[queued.job.id].status, 'posted');
+    assert.equal(store.state.jobs[queued.job.id].post_url, null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('poster accepts only signed Chiping jobs and acknowledges duplicates', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
   const config = {
