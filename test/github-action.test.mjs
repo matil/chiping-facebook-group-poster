@@ -253,6 +253,27 @@ test('Amazon Deals Facebook jobs use a five-minute interval instead of curated d
   }
 });
 
+test('GitHub Action finalizes an exact Facebook post even when its permalink is hidden', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, {
+      client_payload: { payload: payload({ posting_policy: 'amazon-deals-all' }) },
+    });
+    env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+
+    const result = await runGitHubAction(env, {
+      postJob: async () => ({ published: true, postUrl: '' }),
+    });
+
+    assert.equal(result.outcome, 'posted_unlinked');
+    assert.equal(result.summary.posted, 1);
+    assert.equal(result.summary.retry, 0);
+    assert.equal(result.postUrl, '');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('coupon announcements post through the popup link on the fast interval', async () => {
   assert.equal(postIntervalMsForJob({ payload: couponPayload() }), 5 * 60 * 1000);
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));

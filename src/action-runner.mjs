@@ -194,11 +194,13 @@ export async function runGitHubAction(env = process.env, options = {}) {
       try {
         const result = await (options.postJob || postFacebookGroupJob)(job, config, options);
         postUrl = String(result?.postUrl || '');
-        if (!postUrl) throw new Error('Facebook post did not return a permalink');
+        if (!postUrl && result?.published !== true) {
+          throw new Error('Facebook post did not return a permalink');
+        }
         await store.markPosted(job.id, postUrl);
         prunePosted(store);
         await store.persist();
-        outcome = 'posted';
+        outcome = postUrl ? 'posted' : 'posted_unlinked';
       } catch (error) {
         const attempts = job.attempts + 1;
         const message = error instanceof FacebookSessionRequiredError

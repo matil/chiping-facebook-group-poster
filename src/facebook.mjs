@@ -1447,13 +1447,10 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       groupUrl: config.groupUrl,
       itemUrl: job.payload.itemUrl,
       expectedTitle,
-      timeoutMs: 5000,
-      currentPageOnly: true,
+      timeoutMs: 60000,
+      currentPageOnly: false,
     });
-    if (existing.postUrl) return { postUrl: existing.postUrl };
-    if (existing.found) {
-      throw new Error('Facebook already contains the exact item post but has not exposed its permalink');
-    }
+    if (existing.found) return { published: true, postUrl: existing.postUrl || '' };
 
     const composer = await findFacebookGroupComposer(page);
     if (!composer) throw new Error('Facebook group composer was not found');
@@ -1522,10 +1519,10 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       currentPageOnly: false,
     });
     await captureFacebookDebug(page, config, 'after-verification');
-    if (!published.found || !published.postUrl) {
+    if (!published.found) {
       throw new Error('Facebook did not expose the published group post');
     }
-    return { postUrl: published.postUrl };
+    return { published: true, postUrl: published.postUrl || '' };
   } finally {
     if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
     await context.close();
