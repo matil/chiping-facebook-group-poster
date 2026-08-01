@@ -1047,6 +1047,9 @@ test('Facebook publisher uses a clickable link preview instead of uploading a ph
   assert.match(publisher, /waitForChipingLinkPreviewMetadata/);
   assert.match(publisher, /prepareFacebookComposerLinkPreview/);
   assert.match(publisher, /if \(existing\.found\)/);
+  const postSubmitVerification = publisher.slice(publisher.indexOf('await postButton.click()'));
+  assert.match(postSubmitVerification, /timeoutMs: 60000/);
+  assert.match(postSubmitVerification, /currentPageOnly: false/);
   assert.doesNotMatch(publisher, /attachFacebookComposerImage/);
   assert.doesNotMatch(publisher, /downloadImage/);
 });

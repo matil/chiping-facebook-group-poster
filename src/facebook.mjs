@@ -1489,8 +1489,8 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       groupUrl: config.groupUrl,
       itemUrl: job.payload.itemUrl,
       expectedTitle,
-      timeoutMs: 30000,
-      currentPageOnly: true,
+      timeoutMs: 60000,
+      currentPageOnly: false,
     });
     await captureFacebookDebug(page, config, 'after-verification');
     if (!published.found || !published.postUrl) {
