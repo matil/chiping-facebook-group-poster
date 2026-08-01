@@ -129,6 +129,16 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+      - name: Report queue status
+        if: always()
+        env:
+          OUTCOME: ${{ steps.poster.outputs.outcome }}
+          PENDING_PRODUCT_IDS: ${{ steps.poster.outputs.pending_product_ids }}
+          BLOCKED_PRODUCT_IDS: ${{ steps.poster.outputs.blocked_product_ids }}
+        run: |
+          printf 'Facebook outcome=%s pending=%s blocked=%s\n' \
+            "${OUTCOME:-error}" "${PENDING_PRODUCT_IDS:-none}" "${BLOCKED_PRODUCT_IDS:-none}"
+
       - name: Save encrypted Facebook state
         if: always() && steps.poster.outputs.state_changed == 'true'
         uses: actions/cache/save@v4

@@ -252,12 +252,26 @@ export async function runGitHubAction(env = process.env, options = {}) {
     .map((id) => store.state.jobs[id])
     .find((job) => job?.status === 'blocked');
   const blockedReason = String(blockedJob?.last_error || '').slice(0, 160);
+  const pendingProductIds = store.state.order
+    .map((id) => store.state.jobs[id])
+    .filter((job) => job && ['pending', 'retry', 'processing'].includes(job.status))
+    .map((job) => String(job.product_id || job.content_id || '').trim())
+    .filter(Boolean)
+    .join(',');
+  const blockedProductIds = store.state.order
+    .map((id) => store.state.jobs[id])
+    .filter((job) => job?.status === 'blocked')
+    .map((job) => String(job.product_id || job.content_id || '').trim())
+    .filter(Boolean)
+    .join(',');
   await writeOutputs({
     outcome,
     state_changed: changed,
     alert,
     verification_reason: verificationReason,
     blocked_reason: blockedReason,
+    pending_product_ids: pendingProductIds,
+    blocked_product_ids: blockedProductIds,
     post_url: postUrl,
   });
   return {
@@ -266,6 +280,8 @@ export async function runGitHubAction(env = process.env, options = {}) {
     alert,
     verificationReason,
     blockedReason,
+    pendingProductIds,
+    blockedProductIds,
     postUrl,
     summary: store.summary(),
   };
