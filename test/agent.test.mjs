@@ -1659,7 +1659,8 @@ test('Facebook composer text falls back to keyboard input and verifies retention
 });
 
 test('Facebook composer stages the item URL, keeps its card, and removes the visible URL', async () => {
-  const itemUrl = 'https://www.chiping.co.il/?coupons=1';
+  const canonicalUrl = 'https://www.chiping.co.il/?item=9301';
+  const itemUrl = `${canonicalUrl}&fb_preview=fresh-image`;
   const cleanMessage = '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd \u05dc-AliExpress';
   let value = '';
   let previewReady = false;
@@ -1712,9 +1713,7 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
   const page = {
     async waitForTimeout() {},
     keyboard: {
-      async press(key) {
-        if (key === 'Backspace') value = value.replace(/[^\n]*$/, '');
-      },
+      async press() {},
       async insertText(text) { value = text; },
     },
   };
@@ -1722,7 +1721,7 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
   const result = await prepareFacebookComposerLinkPreview(
     page,
     textBox,
-    `${cleanMessage}\n\ud83d\udd17 ${itemUrl}`,
+    `${cleanMessage}\n\ud83d\udd17 ${canonicalUrl}`,
     itemUrl
   );
 

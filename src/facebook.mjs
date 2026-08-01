@@ -1242,8 +1242,16 @@ export async function fillFacebookComposerText(page, textBox, message) {
 function cleanFacebookComposerMessage(message, itemUrl) {
   const url = String(itemUrl || '').trim();
   let cleaned = String(message || '').replace(/\r\n?/g, '\n');
-  if (url) {
-    cleaned = cleaned.split(url).join('');
+  const removableUrls = new Set(url ? [url] : []);
+  try {
+    const canonicalUrl = new URL(url);
+    canonicalUrl.searchParams.delete('fb_preview');
+    removableUrls.add(canonicalUrl.href);
+  } catch {
+    // The caller validates supported Chiping URLs before this helper runs.
+  }
+  for (const removableUrl of removableUrls) {
+    cleaned = cleaned.split(removableUrl).join('');
   }
   return cleaned
     .split('\n')
@@ -1413,12 +1421,11 @@ export async function prepareFacebookComposerLinkPreview(
     textBox
   );
 
-  // Mutate only the URL line. Re-filling the entire contenteditable can detach
-  // Facebook's pending link card even though the stale preview stays visible.
+  // Use real keyboard input after the card is attached. Playwright fill() can
+  // recreate Facebook's editor state and silently detach the pending card.
   await textBox.click({ timeout: 10000 });
-  await page.keyboard.press('Control+End');
-  await page.keyboard.press('Shift+Home');
-  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.insertText(cleanMessage);
   await page.waitForTimeout(500);
   const visibleText = String(await textBox.innerText().catch(() => ''));
   const target = chipingFacebookTarget(itemUrl);
