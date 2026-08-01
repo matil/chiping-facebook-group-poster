@@ -1493,6 +1493,27 @@ export async function verifyFacebookPostImageDestination(page, {
   const normalizedTitle = normalizedFacebookText(expectedTitle);
   if (!target || normalizedTitle.length < 8) return { verified: false, destinationUrl: '' };
   const titleTokens = [...new Set(normalizedTitle.match(/[\p{L}\p{N}%]+/gu) || [])];
+  const observedUrls = new Set();
+  const waitForDestination = async () => {
+    const deadline = Date.now() + Math.max(3000, Math.min(Number(timeoutMs) || 10000, 20000));
+    while (Date.now() < deadline) {
+      const context = typeof page.context === 'function' ? page.context() : null;
+      const pages = context?.pages?.() || [page];
+      for (const candidatePage of pages) {
+        const destinationUrl = String(candidatePage?.url?.() || '');
+        if (destinationUrl) observedUrls.add(destinationUrl);
+        if (referencesExactChipingTarget(destinationUrl, target)) {
+          return { verified: true, destinationUrl, observedUrls: [...observedUrls] };
+        }
+      }
+      await page.waitForTimeout(250).catch(() => new Promise((resolve) => setTimeout(resolve, 250)));
+    }
+    return {
+      verified: false,
+      destinationUrl: [...observedUrls].at(-1) || '',
+      observedUrls: [...observedUrls],
+    };
+  };
   const mediaSelector = [
     'img',
     '[role="img"]',
@@ -1535,7 +1556,7 @@ export async function verifyFacebookPostImageDestination(page, {
         if (!link) return false;
         link.click();
         return true;
-      }).catch(() => false)
+      }).catch(() => true)
       : false;
     if (!clicked) {
       clicked = await image.click({ timeout: 10000, force: true })
@@ -1543,27 +1564,54 @@ export async function verifyFacebookPostImageDestination(page, {
         .catch(() => false);
     }
     if (!clicked) continue;
-    const deadline = Date.now() + Math.max(3000, Math.min(Number(timeoutMs) || 10000, 20000));
-    const observedUrls = new Set();
-    while (Date.now() < deadline) {
-      const context = typeof page.context === 'function' ? page.context() : null;
-      const pages = context?.pages?.() || [page];
-      for (const candidatePage of pages) {
-        const destinationUrl = String(candidatePage?.url?.() || '');
-        if (destinationUrl) observedUrls.add(destinationUrl);
-        if (referencesExactChipingTarget(destinationUrl, target)) {
-          return { verified: true, destinationUrl, observedUrls: [...observedUrls] };
+    return waitForDestination();
+  }
+
+  const clickedFromModal = await page.locator('body').evaluate((body, tokens) => {
+    const normalize = (value) => String(value || '')
+      .normalize('NFKC')
+      .replace(/[\u034f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLocaleLowerCase('he');
+    const hasEveryToken = (value) => {
+      const text = normalize(value);
+      return tokens.every((token) => text.includes(token));
+    };
+    const candidates = [...body.querySelectorAll('a, span, div')]
+      .filter((node) => hasEveryToken(node.textContent))
+      .filter((node) => ![...node.children].some((child) => hasEveryToken(child.textContent)));
+    for (const candidate of candidates) {
+      let scope = candidate;
+      for (let depth = 0; scope && depth < 24; depth += 1, scope = scope.parentElement) {
+        if (!normalize(scope.textContent).includes('chiping.co.il')) continue;
+        const mediaNodes = scope.querySelectorAll([
+          'img',
+          '[role="img"]',
+          '[data-visualcompletion="media-vc-image"]',
+          '[style*="background-image"]',
+        ].join(', '));
+        for (const node of mediaNodes) {
+          const rect = node.getBoundingClientRect();
+          if (rect.width < 180 || rect.height < 120) continue;
+          const style = getComputedStyle(node);
+          const imageLoaded = (
+            node.tagName === 'IMG'
+            && Number(node.naturalWidth) >= 180
+            && Number(node.naturalHeight) >= 120
+            && !/^data:/i.test(String(node.currentSrc || node.src || ''))
+          ) || /url\(["']?https?:\/\//i.test(style.backgroundImage || '');
+          const link = node.closest('a[href], [data-lynx-uri], [role="link"]');
+          if (!imageLoaded || !link) continue;
+          link.click();
+          return true;
         }
       }
-      await page.waitForTimeout(250).catch(() => {});
     }
-    return {
-      verified: false,
-      destinationUrl: [...observedUrls].at(-1) || '',
-      observedUrls: [...observedUrls],
-    };
-  }
-  return { verified: false, destinationUrl: '' };
+    return false;
+  }, titleTokens).catch(() => true);
+  if (clickedFromModal) return waitForDestination();
+  return { verified: false, destinationUrl: '', observedUrls: [] };
 }
 
 export function buildFacebookPreviewShareUrl(itemUrl, imageUrl) {
