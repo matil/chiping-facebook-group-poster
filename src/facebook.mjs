@@ -1413,7 +1413,9 @@ export async function prepareFacebookComposerLinkPreview(
   const cleanMessage = cleanFacebookComposerMessage(message, itemUrl);
   if (!cleanMessage) throw new Error('Facebook post text is empty after removing the preview URL');
 
-  await fillFacebookComposerText(page, textBox, `${cleanMessage}\n\n${itemUrl}`);
+  // Let Facebook create one dedicated URL block before adding any post text.
+  // Multiple editor blocks make Ctrl+A operate on only the active paragraph.
+  await fillFacebookComposerText(page, textBox, itemUrl);
   const stagedPreview = await waitForFacebookLinkPreview(
     page,
     itemUrl,

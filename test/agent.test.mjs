@@ -1725,7 +1725,7 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
     itemUrl
   );
 
-  assert.deepEqual(fills, [`${cleanMessage}\n\n${itemUrl}`]);
+  assert.deepEqual(fills, [itemUrl]);
   assert.equal(value.trim(), cleanMessage);
   assert.equal(previewReady, true);
   assert.equal(result.visibleUrlRemoved, true);
