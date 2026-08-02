@@ -318,6 +318,64 @@ test('GitHub Action syncs verified product posts to the permanent ledger', async
   }
 });
 
+test('GitHub Action permanently saves a migrated legacy posted-product ledger', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory);
+    await mkdir(env.POSTER_DATA_DIR, { recursive: true });
+    const postedAt = '2026-08-01T12:00:00.000Z';
+    const postUrl = 'https://www.facebook.com/groups/chiping/posts/110/';
+    await writeFile(path.join(env.POSTER_DATA_DIR, 'queue.json'), JSON.stringify({
+      version: 1,
+      jobs: {
+        legacy: {
+          id: 'legacy',
+          idempotency_key: 'chiping-facebook:v1:9301',
+          product_id: '9301',
+          content_id: '9301',
+          payload: payload(),
+          status: 'posted',
+          post_url: postUrl,
+          posted_at: postedAt,
+          updated_at: postedAt,
+        },
+      },
+      order: ['legacy'],
+    }));
+    await saveEncryptedActionState({
+      encryptedFile: env.FACEBOOK_ACTION_STATE_FILE,
+      secret: stateKey,
+      dataDir: env.POSTER_DATA_DIR,
+      storageStateFile: env.FACEBOOK_STORAGE_STATE_FILE,
+    });
+    env.FACEBOOK_POSTED_LEDGER_ENDPOINT = 'https://ledger.example.test/v1/facebook-posted-ledger';
+    env.FACEBOOK_POSTED_LEDGER_SECRET = 'ledger-test-secret';
+
+    const result = await runGitHubAction(env, {
+      ledgerFetch: async () => new Response('{}', { status: 200 }),
+    });
+    assert.equal(result.outcome, 'idle');
+    assert.equal(result.stateChanged, true);
+    assert.equal(result.postedLedgerCount, 1);
+
+    const restoredDir = path.join(directory, 'restored-ledger');
+    await restoreEncryptedActionState({
+      encryptedFile: env.FACEBOOK_ACTION_STATE_FILE,
+      secret: stateKey,
+      dataDir: restoredDir,
+      storageStateFile: path.join(restoredDir, 'storage.json'),
+    });
+    const restored = JSON.parse(await readFile(path.join(restoredDir, 'queue.json'), 'utf8'));
+    assert.deepEqual(restored.posted_products['9301'], {
+      product_id: '9301',
+      post_url: postUrl,
+      posted_at: postedAt,
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('GitHub Action blocks instead of duplicating a published post with no product image', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
   try {

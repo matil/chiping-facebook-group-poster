@@ -142,8 +142,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
     storageStateFile: config.storageStateFile,
   });
   const store = new JobStore(config.dataDir);
-  await store.init();
-  let changed = false;
+  let changed = await store.init();
   let alert = false;
   let outcome = 'idle';
   let verificationReason = '';

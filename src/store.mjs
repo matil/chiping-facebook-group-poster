@@ -11,7 +11,7 @@ function isProductPost(job = {}) {
     && /^\d+$/.test(String(job?.product_id || '').trim());
 }
 
-function postedProductEntry(job = {}, postUrl = null, postedAt = new Date().toISOString()) {
+function postedProductEntry(job = {}, postUrl = null, postedAt = null) {
   if (!isProductPost(job)) return null;
   const productId = String(job.product_id).trim();
   return {
@@ -71,6 +71,7 @@ export class JobStore {
       }
     }
     if (changed) await this.persist();
+    return changed;
   }
 
   async persist() {
