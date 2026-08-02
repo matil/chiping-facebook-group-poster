@@ -113,6 +113,8 @@ jobs:
           FACEBOOK_LOGIN_PASSWORD_FILE: ${{ runner.temp }}/chiping-facebook-secrets/password
           FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}
           FACEBOOK_TRUST_VERIFIED_PROFILE: 'true'
+          FACEBOOK_POSTED_LEDGER_ENDPOINT: ${{ secrets.FACEBOOK_POSTED_LEDGER_ENDPOINT }}
+          FACEBOOK_POSTED_LEDGER_SECRET: ${{ secrets.FACEBOOK_POSTED_LEDGER_SECRET }}
           FACEBOOK_STORAGE_STATE_FILE: ${{ runner.temp }}/chiping-facebook-data/facebook-storage-state.json
           POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
           POSTER_HEADLESS: 'true'
@@ -135,9 +137,12 @@ jobs:
           OUTCOME: ${{ steps.poster.outputs.outcome }}
           PENDING_PRODUCT_IDS: ${{ steps.poster.outputs.pending_product_ids }}
           BLOCKED_PRODUCT_IDS: ${{ steps.poster.outputs.blocked_product_ids }}
+          POSTED_LEDGER_COUNT: ${{ steps.poster.outputs.posted_ledger_count }}
+          LEDGER_SYNC_ERROR: ${{ steps.poster.outputs.ledger_sync_error }}
         run: |
-          printf 'Facebook outcome=%s pending=%s blocked=%s\n' \
-            "${OUTCOME:-error}" "${PENDING_PRODUCT_IDS:-none}" "${BLOCKED_PRODUCT_IDS:-none}"
+          printf 'Facebook outcome=%s pending=%s blocked=%s ledger=%s ledger_error=%s\n' \
+            "${OUTCOME:-error}" "${PENDING_PRODUCT_IDS:-none}" "${BLOCKED_PRODUCT_IDS:-none}" \
+            "${POSTED_LEDGER_COUNT:-0}" "${LEDGER_SYNC_ERROR:-none}"
 
       - name: Save encrypted Facebook state
         if: always() && steps.poster.outputs.state_changed == 'true'

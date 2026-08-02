@@ -277,6 +277,47 @@ test('GitHub Action finalizes an exact Facebook post even when its permalink is 
   }
 });
 
+test('GitHub Action syncs verified product posts to the permanent ledger', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, { client_payload: { payload: payload() } });
+    env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    env.FACEBOOK_POSTED_LEDGER_ENDPOINT = 'https://ledger.example.test/v1/facebook-posted-ledger';
+    env.FACEBOOK_POSTED_LEDGER_SECRET = 'ledger-test-secret';
+    const requests = [];
+    const postUrl = 'https://www.facebook.com/groups/chiping/posts/111/';
+    const result = await runGitHubAction(env, {
+      postJob: async () => ({ postUrl }),
+      ledgerFetch: async (url, options) => {
+        requests.push({ url, options });
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
+    });
+
+    assert.equal(result.outcome, 'posted');
+    assert.equal(result.postedProductId, '9301');
+    assert.equal(result.postedLedgerCount, 1);
+    assert.equal(result.ledgerSyncError, '');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, env.FACEBOOK_POSTED_LEDGER_ENDPOINT);
+    assert.equal(requests[0].options.method, 'POST');
+    assert.equal(
+      requests[0].options.headers['X-Chiping-Facebook-Ledger-Secret'],
+      env.FACEBOOK_POSTED_LEDGER_SECRET
+    );
+    const body = JSON.parse(requests[0].options.body);
+    assert.deepEqual(body.posts.map(({ product_id, post_url }) => ({ product_id, post_url })), [{
+      product_id: '9301',
+      post_url: postUrl,
+    }]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('GitHub Action blocks instead of duplicating a published post with no product image', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
   try {
@@ -578,6 +619,8 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
     'utf8'
   );
   assert.match(postingWorkflow, /FACEBOOK_TRUST_VERIFIED_PROFILE: 'true'/);
+  assert.match(postingWorkflow, /FACEBOOK_POSTED_LEDGER_ENDPOINT:/);
+  assert.match(postingWorkflow, /FACEBOOK_POSTED_LEDGER_SECRET:/);
   assert.match(postingWorkflow, /FACEBOOK_ACTION_RESET_PRODUCT_ID:/);
   assert.match(postingWorkflow, /FACEBOOK_ACTION_CONFIRM_PRODUCT_ID:/);
   assert.match(postingWorkflow, /Post URL:/);

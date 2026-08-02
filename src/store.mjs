@@ -3,7 +3,22 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 function emptyState() {
-  return { version: 1, jobs: {}, order: [] };
+  return { version: 2, jobs: {}, order: [], posted_products: {} };
+}
+
+function isProductPost(job = {}) {
+  return String(job?.payload?.posting_policy || '').trim().toLowerCase() !== 'coupon-announcement'
+    && /^\d+$/.test(String(job?.product_id || '').trim());
+}
+
+function postedProductEntry(job = {}, postUrl = null, postedAt = new Date().toISOString()) {
+  if (!isProductPost(job)) return null;
+  const productId = String(job.product_id).trim();
+  return {
+    product_id: productId,
+    post_url: String(postUrl || job.post_url || '').trim() || null,
+    posted_at: String(postedAt || job.posted_at || '').trim() || new Date().toISOString(),
+  };
 }
 
 function dueAt(job) {
@@ -35,12 +50,24 @@ export class JobStore {
       if (error?.code !== 'ENOENT') throw error;
     }
     let changed = false;
+    if (!this.state.posted_products || typeof this.state.posted_products !== 'object') {
+      this.state.posted_products = {};
+      changed = true;
+    }
+    this.state.version = 2;
     for (const job of Object.values(this.state.jobs)) {
       if (job?.status === 'processing') {
         job.status = 'retry';
         job.next_attempt_at = new Date().toISOString();
         job.last_error = 'service_restarted_during_processing';
         changed = true;
+      }
+      if (job?.status === 'posted') {
+        const entry = postedProductEntry(job);
+        if (entry && !this.state.posted_products[entry.product_id]) {
+          this.state.posted_products[entry.product_id] = entry;
+          changed = true;
+        }
       }
     }
     if (changed) await this.persist();
@@ -58,6 +85,7 @@ export class JobStore {
 
   async enqueue(payload) {
     const idempotencyKey = String(payload?.idempotency_key || payload?.idempotencyKey || '').trim();
+    const productId = String(payload?.productId || '').trim();
     const existing = this.state.order
       .map((id) => this.state.jobs[id])
       .find((job) => job?.idempotency_key === idempotencyKey);
@@ -70,6 +98,23 @@ export class JobStore {
         await this.persist();
       }
       return { job: structuredClone(existing), accepted: false, deduplicated: true };
+    }
+    const postedProduct = this.state.posted_products?.[productId];
+    if (postedProduct) {
+      return {
+        job: {
+          id: `posted-product:${productId}`,
+          idempotency_key: idempotencyKey,
+          product_id: productId,
+          content_id: productId,
+          payload,
+          status: 'posted',
+          post_url: postedProduct.post_url,
+          posted_at: postedProduct.posted_at,
+        },
+        accepted: false,
+        deduplicated: true,
+      };
     }
 
     const now = new Date().toISOString();
@@ -136,6 +181,8 @@ export class JobStore {
     job.last_error = null;
     job.posted_at = new Date().toISOString();
     job.updated_at = job.posted_at;
+    const entry = postedProductEntry(job, postUrl, job.posted_at);
+    if (entry) this.state.posted_products[entry.product_id] = entry;
     await this.persist();
     return structuredClone(job);
   }
@@ -183,6 +230,10 @@ export class JobStore {
     if (!/^\d+$/.test(normalizedProductId)) return 0;
     const now = new Date().toISOString();
     let reset = 0;
+    const removedFromLedger = Boolean(this.state.posted_products?.[normalizedProductId]);
+    if (removedFromLedger) {
+      delete this.state.posted_products[normalizedProductId];
+    }
     for (const job of Object.values(this.state.jobs)) {
       if (String(job?.product_id || '') !== normalizedProductId) continue;
       job.status = 'pending';
@@ -194,6 +245,7 @@ export class JobStore {
       job.updated_at = now;
       reset += 1;
     }
+    if (!reset && removedFromLedger) reset = 1;
     if (reset) await this.persist();
     return reset;
   }
@@ -214,6 +266,12 @@ export class JobStore {
       job.updated_at = now;
       confirmed += 1;
     }
+    this.state.posted_products[normalizedProductId] = {
+      product_id: normalizedProductId,
+      post_url: normalizedPostUrl,
+      posted_at: now,
+    };
+    confirmed = Math.max(confirmed, 1);
     if (confirmed) await this.persist();
     return confirmed;
   }
@@ -233,6 +291,12 @@ export class JobStore {
       job.updated_at = now;
       finalized += 1;
     }
+    this.state.posted_products[normalizedProductId] = {
+      product_id: normalizedProductId,
+      post_url: null,
+      posted_at: now,
+    };
+    finalized = Math.max(finalized, 1);
     if (finalized) await this.persist();
     return finalized;
   }
@@ -243,5 +307,12 @@ export class JobStore {
       if (job?.status in result) result[job.status] += 1;
     }
     return result;
+  }
+
+  postedLedgerEntries() {
+    return Object.values(this.state.posted_products || {})
+      .filter((entry) => /^\d+$/.test(String(entry?.product_id || '')))
+      .sort((left, right) => Date.parse(left.posted_at || '') - Date.parse(right.posted_at || ''))
+      .map((entry) => structuredClone(entry));
   }
 }

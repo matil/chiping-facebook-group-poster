@@ -105,6 +105,28 @@ async function writeOutputs(outputs) {
   await appendFile(process.env.GITHUB_OUTPUT, body, 'utf8');
 }
 
+async function syncPostedLedger(store, env = {}, options = {}) {
+  const endpoint = String(env.FACEBOOK_POSTED_LEDGER_ENDPOINT || '').trim();
+  const secret = String(env.FACEBOOK_POSTED_LEDGER_SECRET || '').trim();
+  if (!endpoint || !secret) return { configured: false, synced: 0 };
+  const posts = store.postedLedgerEntries();
+  const fetchImpl = options.ledgerFetch || fetch;
+  const response = await fetchImpl(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Chiping-Facebook-Ledger-Secret': secret,
+    },
+    body: JSON.stringify({ posts }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const text = await response.text().catch(() => '');
+  if (!response.ok) {
+    throw new Error(`Facebook posted ledger sync failed: ${response.status} ${text.slice(0, 160)}`);
+  }
+  return { configured: true, synced: posts.length };
+}
+
 export async function runGitHubAction(env = process.env, options = {}) {
   const config = loadConfig(env);
   const encryptedFile = String(env.FACEBOOK_ACTION_STATE_FILE || '').trim();
@@ -126,6 +148,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
   let outcome = 'idle';
   let verificationReason = '';
   let postUrl = '';
+  let postedProductId = '';
   let confirmed = false;
   const payload = await readEventPayload(String(env.FACEBOOK_EVENT_PATH || '').trim());
   if (payload && validChipingFacebookPayload(payload)) {
@@ -172,6 +195,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
     confirmed = confirmedCount > 0;
     if (confirmed) {
       postUrl = confirmPostUrl;
+      postedProductId = confirmProductId;
       outcome = 'confirmed';
     }
   }
@@ -182,7 +206,10 @@ export async function runGitHubAction(env = process.env, options = {}) {
     const finalizedCount = await store.finalizeProductPostedUnlinked(finalizeUnlinkedProductId);
     changed ||= finalizedCount > 0;
     confirmed = finalizedCount > 0;
-    if (confirmed) outcome = 'finalized_unlinked';
+    if (confirmed) {
+      postedProductId = finalizeUnlinkedProductId;
+      outcome = 'finalized_unlinked';
+    }
   }
 
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
@@ -219,6 +246,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
           throw new Error('Facebook post did not return a permalink');
         }
         await store.markPosted(job.id, postUrl);
+        postedProductId = String(job.product_id || '').trim();
         prunePosted(store);
         await store.persist();
         outcome = postUrl ? 'posted' : 'posted_unlinked';
@@ -247,6 +275,15 @@ export async function runGitHubAction(env = process.env, options = {}) {
       storageStateFile: config.storageStateFile,
     });
   }
+  let ledgerSyncError = '';
+  let ledgerSynced = 0;
+  try {
+    const ledgerSync = await syncPostedLedger(store, env, options);
+    ledgerSynced = Number(ledgerSync.synced) || 0;
+  } catch (error) {
+    ledgerSyncError = String(error.message || error).slice(0, 240);
+    alert = true;
+  }
   const blockedJob = [...store.state.order]
     .reverse()
     .map((id) => store.state.jobs[id])
@@ -273,6 +310,9 @@ export async function runGitHubAction(env = process.env, options = {}) {
     pending_product_ids: pendingProductIds,
     blocked_product_ids: blockedProductIds,
     post_url: postUrl,
+    posted_product_id: postedProductId,
+    posted_ledger_count: ledgerSynced,
+    ledger_sync_error: ledgerSyncError,
   });
   return {
     outcome,
@@ -283,6 +323,9 @@ export async function runGitHubAction(env = process.env, options = {}) {
     pendingProductIds,
     blockedProductIds,
     postUrl,
+    postedProductId,
+    postedLedgerCount: ledgerSynced,
+    ledgerSyncError,
     summary: store.summary(),
   };
 }

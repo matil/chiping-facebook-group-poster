@@ -1996,6 +1996,37 @@ test('job store refreshes a failed duplicate payload without reopening a posted 
   }
 });
 
+test('posted-product ledger prevents reposting after the original job is pruned', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    const queued = await store.enqueue(payload());
+    const postUrl = 'https://www.facebook.com/groups/chiping/posts/111/';
+    await store.markPosted(queued.job.id, postUrl);
+    delete store.state.jobs[queued.job.id];
+    store.state.order = [];
+    await store.persist();
+
+    const reopened = new JobStore(directory);
+    await reopened.init();
+    const duplicate = await reopened.enqueue(payload({
+      imageUrl: 'https://cdn.example.test/new-image-that-must-not-post.jpg',
+    }));
+
+    assert.equal(duplicate.deduplicated, true);
+    assert.equal(duplicate.job.status, 'posted');
+    assert.equal(duplicate.job.post_url, postUrl);
+    assert.deepEqual(reopened.postedLedgerEntries(), [{
+      product_id: '9301',
+      post_url: postUrl,
+      posted_at: reopened.state.posted_products['9301'].posted_at,
+    }]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('job store can reset one falsely completed product without touching others', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-poster-'));
   try {
