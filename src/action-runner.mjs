@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import {
   FacebookPostMediaRequiredError,
   FacebookSessionRequiredError,
+  deleteFacebookGroupPost,
   postFacebookGroupJob,
   verifyFacebookGroupAccess,
 } from './facebook.mjs';
@@ -149,6 +150,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
   let postUrl = '';
   let postedProductId = '';
   let confirmed = false;
+  let deleted = false;
   const payload = await readEventPayload(String(env.FACEBOOK_EVENT_PATH || '').trim());
   if (payload && validChipingFacebookPayload(payload)) {
     const queued = await store.enqueue(payload);
@@ -211,10 +213,23 @@ export async function runGitHubAction(env = process.env, options = {}) {
     }
   }
 
+  const deleteProductId = String(env.FACEBOOK_ACTION_DELETE_PRODUCT_ID || '').trim();
+  const deletePostUrl = String(env.FACEBOOK_ACTION_DELETE_POST_URL || '').trim();
+  if (deleteProductId || deletePostUrl) {
+    if (!/^\d+$/.test(deleteProductId) || !validFacebookPostUrl(deletePostUrl)) {
+      throw new Error('Facebook post deletion is invalid');
+    }
+    await (options.deletePost || deleteFacebookGroupPost)(deletePostUrl, config, options);
+    const reset = await store.resetProduct(deleteProductId);
+    changed ||= reset > 0;
+    deleted = true;
+    outcome = 'deleted';
+  }
+
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
   const summary = store.summary();
   const nextJob = store.peekNext(nowMs);
-  if (confirmed) {
+  if (confirmed || deleted) {
     // A separately verified permalink is final; never submit the product again.
   } else if (enabled(env.FACEBOOK_ACTION_VERIFY_GROUP_ACCESS)) {
     changed = true;

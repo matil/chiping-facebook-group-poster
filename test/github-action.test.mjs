@@ -576,6 +576,34 @@ test('GitHub Action can reset and repost one falsely completed product', async (
   }
 });
 
+test('GitHub Action deletes an incorrect post and resets it without reposting in the same run', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const firstEnv = await actionEnvironment(directory, { client_payload: { payload: payload() } });
+    firstEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    await runGitHubAction(firstEnv, {
+      postJob: async () => ({ postUrl: 'https://www.facebook.com/groups/chiping/posts/111/' }),
+    });
+
+    const deleteEnv = await actionEnvironment(directory);
+    deleteEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    deleteEnv.FACEBOOK_ACTION_DELETE_PRODUCT_ID = '9301';
+    deleteEnv.FACEBOOK_ACTION_DELETE_POST_URL = 'https://www.facebook.com/groups/chiping/posts/111/';
+    let deletedUrl = '';
+    const result = await runGitHubAction(deleteEnv, {
+      deletePost: async (postUrl) => { deletedUrl = postUrl; return { deleted: true }; },
+      postJob: async () => { throw new Error('deletion must not repost in the same run'); },
+    });
+
+    assert.equal(result.outcome, 'deleted');
+    assert.equal(deletedUrl, deleteEnv.FACEBOOK_ACTION_DELETE_POST_URL);
+    assert.equal(result.summary.posted, 0);
+    assert.equal(result.summary.pending, 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('GitHub Action confirms a recovered permalink without launching the poster', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
   try {

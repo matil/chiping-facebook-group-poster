@@ -33,6 +33,14 @@ on:
         description: Finalize one reviewed post whose permalink or media cannot be recovered
         required: false
         type: string
+      delete_product_id:
+        description: Product ID whose incorrect Facebook post must be deleted and reset
+        required: false
+        type: string
+      delete_post_url:
+        description: Exact Facebook Group post URL to delete
+        required: false
+        type: string
 
 permissions:
   actions: write
@@ -109,6 +117,8 @@ jobs:
           FACEBOOK_ACTION_CONFIRM_PRODUCT_ID: ${{ inputs.confirm_product_id }}
           FACEBOOK_ACTION_CONFIRM_POST_URL: ${{ inputs.confirm_post_url }}
           FACEBOOK_ACTION_FINALIZE_UNLINKED_PRODUCT_ID: ${{ inputs.finalize_unlinked_product_id }}
+          FACEBOOK_ACTION_DELETE_PRODUCT_ID: ${{ inputs.delete_product_id }}
+          FACEBOOK_ACTION_DELETE_POST_URL: ${{ inputs.delete_post_url }}
           FACEBOOK_LOGIN_EMAIL_FILE: ${{ runner.temp }}/chiping-facebook-secrets/email
           FACEBOOK_LOGIN_PASSWORD_FILE: ${{ runner.temp }}/chiping-facebook-secrets/password
           FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}

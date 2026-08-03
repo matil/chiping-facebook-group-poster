@@ -2002,3 +2002,66 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     if (session.browser) await session.browser.close();
   }
 }
+
+export async function deleteFacebookGroupPost(postUrl, config, options = {}) {
+  const targetUrl = new URL(String(postUrl || '').trim());
+  if (!['facebook.com', 'www.facebook.com'].includes(targetUrl.hostname)) {
+    throw new Error('Facebook delete URL is invalid');
+  }
+  const playwright = options.playwright || await import('playwright');
+  const session = await createFacebookContext(playwright.chromium, config);
+  const { context } = session;
+  let page = null;
+  try {
+    page = context.pages()[0] || await context.newPage();
+    await page.goto(targetUrl.toString(), { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await loginIfNeeded(page, config);
+    await selectPostingProfile(page, config);
+    await page.waitForTimeout(2500);
+
+    const menuButton = await firstVisibleLocator(page, [
+      '[role="main"] [role="article"] [role="button"][aria-label="Actions for this post"]',
+      '[role="main"] [role="article"] [role="button"][aria-label*="Actions for this post"]',
+      '[role="main"] [role="article"] [role="button"][aria-label*="More actions"]',
+      '[role="main"] [role="article"] [role="button"][aria-label="More"]',
+      '[role="main"] [role="article"] [role="button"][aria-label*="\u05e4\u05e2\u05d5\u05dc\u05d5\u05ea \u05e2\u05d1\u05d5\u05e8 \u05e4\u05d5\u05e1\u05d8"]',
+      '[role="main"] [role="article"] [role="button"][aria-label*="\u05d0\u05e4\u05e9\u05e8\u05d5\u05d9\u05d5\u05ea"]',
+    ]);
+    if (!menuButton) throw new Error('Facebook post actions menu was not found');
+    await menuButton.click({ timeout: 10000 });
+
+    const deleteItem = await firstVisibleLocator(page, [
+      '[role="menuitem"]:has-text("Delete post")',
+      '[role="menuitem"]:has-text("Move to Trash")',
+      '[role="menuitem"]:has-text("\u05de\u05d7\u05d9\u05e7\u05ea \u05d4\u05e4\u05d5\u05e1\u05d8")',
+      '[role="menuitem"]:has-text("\u05d4\u05e2\u05d1\u05e8\u05d4 \u05dc\u05d0\u05e9\u05e4\u05d4")',
+      '[role="menuitem"]:has-text("\u05de\u05d7\u05d9\u05e7\u05d4")',
+    ]);
+    if (!deleteItem) throw new Error('Facebook delete-post action was not found');
+    await deleteItem.click({ timeout: 10000 });
+
+    const confirmButton = await firstVisibleLocator(page, [
+      '[role="dialog"] [role="button"]:has-text("Delete")',
+      '[role="dialog"] [role="button"]:has-text("Move")',
+      '[role="dialog"] [role="button"]:has-text("\u05de\u05d7\u05d9\u05e7\u05d4")',
+      '[role="dialog"] [role="button"]:has-text("\u05d4\u05e2\u05d1\u05e8\u05d4")',
+    ]);
+    if (!confirmButton) throw new Error('Facebook delete confirmation was not found');
+    await captureFacebookDebug(page, config, 'before-delete');
+    await confirmButton.click({ timeout: 10000 });
+    await page.waitForTimeout(2500);
+    await captureFacebookDebug(page, config, 'after-delete');
+    return { deleted: true, postUrl: targetUrl.toString() };
+  } catch (error) {
+    if (page) {
+      await captureFacebookDebug(page, config, 'delete-failed', {
+        error: String(error?.message || error || 'Facebook delete failed').slice(0, 500),
+      });
+    }
+    throw error;
+  } finally {
+    if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
+    await context.close();
+    if (session.browser) await session.browser.close();
+  }
+}
