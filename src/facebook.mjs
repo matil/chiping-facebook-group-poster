@@ -2056,6 +2056,7 @@ export async function deleteFacebookGroupPost(postUrl, config, options = {}) {
     ]);
     if (!menuButton) throw new Error('Facebook post actions menu was not found');
     await menuButton.click({ timeout: 10000 });
+    await page.waitForTimeout(5000);
 
     const deleteItem = await firstVisibleLocator(page, [
       '[role="menuitem"]:has-text("Delete post")',
