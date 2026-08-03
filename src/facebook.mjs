@@ -2041,6 +2041,12 @@ export async function deleteFacebookGroupPost(postUrl, config, options = {}) {
     }
 
     const menuButton = await firstVisibleLocator(page, [
+      '[role="dialog"] [role="button"][aria-label="Actions for this post"]',
+      '[role="dialog"] [role="button"][aria-label*="Actions for this post"]',
+      '[role="dialog"] [role="button"][aria-label*="More actions"]',
+      '[role="dialog"] [role="button"][aria-label="More"]',
+      '[role="dialog"] [role="button"][aria-label*="\u05e4\u05e2\u05d5\u05dc\u05d5\u05ea \u05e2\u05d1\u05d5\u05e8 \u05e4\u05d5\u05e1\u05d8"]',
+      '[role="dialog"] [role="button"][aria-label*="\u05d0\u05e4\u05e9\u05e8\u05d5\u05d9\u05d5\u05ea"]',
       '[role="main"] [role="article"] [role="button"][aria-label="Actions for this post"]',
       '[role="main"] [role="article"] [role="button"][aria-label*="Actions for this post"]',
       '[role="main"] [role="article"] [role="button"][aria-label*="More actions"]',
