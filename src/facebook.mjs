@@ -293,6 +293,19 @@ function decodedUrl(value) {
   return result;
 }
 
+async function recoverBlankFacebookPage(page, targetUrl) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.waitForTimeout(attempt === 0 ? 3000 : 5000);
+    const bodyText = await page.locator('body').innerText().catch(() => '');
+    const visibleControls = await page.locator('[role="button"], [role="main"], form').count().catch(() => 0);
+    if (bodyText.trim().length >= 40 || visibleControls > 2) return true;
+    if (attempt < 2) {
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+    }
+  }
+  return false;
+}
+
 export class FacebookPostMediaRequiredError extends Error {
   constructor(message = 'Facebook published the Chiping post without its product image link card') {
     super(message);
@@ -1867,6 +1880,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
+    await recoverBlankFacebookPage(page, config.groupUrl);
     await sortFacebookGroupFeedNewest(page);
     const messageTitle = String(job.payload.message || '')
       .split(/\r?\n/)
@@ -1903,6 +1917,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     page = await navigateFacebookForVerification(page, config.groupUrl);
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
+    await recoverBlankFacebookPage(page, config.groupUrl);
     await sortFacebookGroupFeedNewest(page);
 
     const composer = await findFacebookGroupComposer(page);
