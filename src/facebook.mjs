@@ -2019,6 +2019,12 @@ export async function deleteFacebookGroupPost(postUrl, config, options = {}) {
     await selectPostingProfile(page, config);
     await page.waitForTimeout(2500);
 
+    const pageText = await page.locator('body').innerText().catch(() => '');
+    if (/(?:this content isn['’]t available|this content is not available|\u05d4\u05ea\u05d5\u05db\u05df \u05d4\u05d6\u05d4 \u05d0\u05d9\u05e0\u05d5 \u05d6\u05de\u05d9\u05df|\u05d4\u05ea\u05d5\u05db\u05df \u05d0\u05d9\u05e0\u05d5 \u05d6\u05de\u05d9\u05df)/i.test(pageText)) {
+      await captureFacebookDebug(page, config, 'already-deleted');
+      return { deleted: true, alreadyMissing: true, postUrl: targetUrl.toString() };
+    }
+
     const menuButton = await firstVisibleLocator(page, [
       '[role="main"] [role="article"] [role="button"][aria-label="Actions for this post"]',
       '[role="main"] [role="article"] [role="button"][aria-label*="Actions for this post"]',
