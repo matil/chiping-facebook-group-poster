@@ -4,13 +4,25 @@ export const COUPON_ANNOUNCEMENT_TYPE = 'coupon_announcement';
 export const COUPON_ANNOUNCEMENT_URL = 'https://www.chiping.co.il/?coupons=1';
 export const COUPON_ANNOUNCEMENT_IMAGE_URL = 'https://www.chiping.co.il/images/fb-coupons-aliexpress-v2.png';
 const LEGACY_COUPON_ANNOUNCEMENT_IMAGE_URL = 'https://www.chiping.co.il/images/fb-coupons-aliexpress.png';
+const HEBREW_CHARACTER_RE = /[\u0590-\u05ff]/u;
+const CORRUPTED_TEXT_RE = /\?{3,}|\ufffd/u;
+
+function validHebrewText(value, { required = false } = {}) {
+  if (value == null || value === '') return !required;
+  if (typeof value !== 'string') return false;
+  const text = value.trim();
+  return text.length > 0
+    && HEBREW_CHARACTER_RE.test(text)
+    && !CORRUPTED_TEXT_RE.test(text);
+}
 
 function validCommonFields(payload) {
   return payload?.site === 'chiping'
     && payload?.channel === 'facebook'
     && payload?.language === 'he'
-    && typeof payload?.message === 'string'
-    && payload.message.trim().length > 0
+    && validHebrewText(payload?.message, { required: true })
+    && validHebrewText(payload?.title)
+    && validHebrewText(payload?.description)
     && typeof payload?.imageUrl === 'string'
     && payload.imageUrl.startsWith('https://')
     && typeof payload?.itemUrl === 'string';

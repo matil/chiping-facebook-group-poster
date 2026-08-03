@@ -170,6 +170,21 @@ test('coupon payload validation keeps legacy queued artwork compatible', () => {
   })), true);
 });
 
+test('Facebook payload validation rejects corrupted Hebrew before posting', () => {
+  assert.equal(validChipingFacebookPayload(payload({ message: '???? ????? ?????' })), false);
+  assert.equal(validChipingFacebookPayload(payload({ message: '\ufffd\ufffd\ufffd' })), false);
+  assert.equal(validChipingFacebookPayload(payload({ message: 'Under Armour Charged Assert 11' })), false);
+  assert.equal(validChipingFacebookPayload(payload({
+    message: '\u05de\u05d4 \u05d4\u05de\u05d7\u05d9\u05e8? \u05d6\u05d4 \u05d3\u05d9\u05dc \u05d8\u05d5\u05d1',
+    title: '???? Under Armour',
+  })), false);
+  assert.equal(validChipingFacebookPayload(payload({
+    message: '\u05de\u05d4 \u05d4\u05de\u05d7\u05d9\u05e8? \u05d6\u05d4 \u05d3\u05d9\u05dc \u05d8\u05d5\u05d1',
+    title: '\u05e0\u05e2\u05dc\u05d9 \u05e8\u05d9\u05e6\u05d4 Under Armour',
+    description: '\u05e8\u05d9\u05e4\u05d5\u05d3 \u05e0\u05d5\u05d7 \u05dc\u05e8\u05d9\u05e6\u05d4',
+  })), true);
+});
+
 test('Facebook post verification matches the exact coupon-popup link', async () => {
   const articles = [{
     text: '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd',
