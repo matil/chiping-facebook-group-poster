@@ -393,6 +393,76 @@ test('Facebook post verification checks the current feed before opening search',
   assert.equal(navigated, false);
 });
 
+test('Facebook loaded-card verification rejects a different Chiping item', async () => {
+  const title = '\u05de\u05db\u05d5\u05e0\u05ea \u05d0\u05e1\u05e4\u05e8\u05e1\u05d5 Melitta Caffeo Solo';
+  const mediaSelector = [
+    'img',
+    '[role="img"]',
+    '[data-visualcompletion="media-vc-image"]',
+    '[style*="background-image"]',
+  ].join(', ');
+  const article = {
+    async isVisible() { return true; },
+    async innerText() { return `${title}\nCHIPING.CO.IL`; },
+    locator(selector) {
+      if (selector === 'a[href], [data-lynx-uri]') {
+        return {
+          async evaluateAll() {
+            return ['https://www.facebook.com/groups/chiping/posts/10646/'];
+          },
+        };
+      }
+      assert.equal(selector, mediaSelector);
+      return {
+        async evaluateAll() {
+          return [{
+            width: 500,
+            height: 262,
+            visible: true,
+            imageLoaded: true,
+            clickable: true,
+            clickTargets: ['https://www.chiping.co.il/?item=10646'],
+          }];
+        },
+      };
+    },
+  };
+  const page = {
+    locator(selector) {
+      if (selector === 'body') {
+        return {
+          async evaluate() {
+            return {
+              titleFound: false,
+              hrefs: [],
+              timestampMarked: false,
+              diagnosticLinks: [],
+              diagnosticControls: [],
+            };
+          },
+        };
+      }
+      assert.equal(selector, '[role="article"]');
+      return {
+        async count() { return 1; },
+        nth() { return article; },
+      };
+    },
+  };
+
+  assert.deepEqual(await findFacebookGroupPostWithMediaFallback(page, {
+    groupUrl: 'https://www.facebook.com/groups/chiping',
+    itemUrl: 'https://www.chiping.co.il/?item=10675',
+    expectedTitle: title,
+    requireLoadedLinkImage: true,
+    currentPageOnly: true,
+  }), {
+    found: false,
+    postUrl: 'https://www.facebook.com/groups/chiping/posts/10646/',
+    incomplete: true,
+  });
+});
+
 test('Facebook link-card verification falls through to DOM permalink recovery', async () => {
   const title = '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9 AliExpress \u05d4\u05d7\u05d3\u05e9\u05d9\u05dd \u05db\u05d1\u05e8 \u05db\u05d0\u05df';
   const article = {
@@ -1392,8 +1462,8 @@ test('Facebook publisher uses a clickable link preview instead of uploading a ph
   assert.match(publisher, /waitForChipingLinkPreviewMetadata/);
   assert.match(publisher, /prepareFacebookComposerLinkPreview/);
   assert.match(source, /buildFacebookPreviewShareUrl\(payload\.itemUrl, payload\.imageUrl\)/);
-  assert.match(publisher, /const messageTitle = String\(job\.payload\.message \|\| ''\)/);
-  assert.match(publisher, /const expectedTitle = messageTitle \|\| await fetchChipingLinkPreviewTitle/);
+  assert.match(publisher, /const expectedTitle = String\(job\.payload\.title \|\| ''\)\.trim\(\) \|\| await fetchChipingLinkPreviewTitle/);
+  assert.match(source, /\{ requireLoadedLinkImage: true, requiredItemUrl: itemUrl \}/);
   assert.match(publisher, /if \(existing\.found\)/);
   assert.match(publisher, /verifyFacebookPostImageDestination/);
   assert.match(

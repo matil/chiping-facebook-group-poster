@@ -998,7 +998,7 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
     const completeCurrent = await findFacebookGroupPostViaLinkCardTitle(
       page,
       expectedTitle,
-      { requireLoadedLinkImage: true }
+      { requireLoadedLinkImage: true, requiredItemUrl: itemUrl }
     );
     if (completeCurrent.found) return completeCurrent;
     const incompleteCurrent = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
@@ -1019,7 +1019,7 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
       completeSearch = await findFacebookGroupPostViaLinkCardTitle(
         page,
         expectedTitle,
-        { requireLoadedLinkImage: true }
+        { requireLoadedLinkImage: true, requiredItemUrl: itemUrl }
       );
       if (completeSearch.found) return completeSearch;
       incompleteSearch = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
@@ -1882,11 +1882,9 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     await selectPostingProfile(page, config);
     await recoverBlankFacebookPage(page, config.groupUrl);
     await sortFacebookGroupFeedNewest(page);
-    const messageTitle = String(job.payload.message || '')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find(Boolean) || '';
-    const expectedTitle = messageTitle || await fetchChipingLinkPreviewTitle(
+    // The post body intentionally contains only the description. Existing-post
+    // verification must use the product/link-card title, not that body text.
+    const expectedTitle = String(job.payload.title || '').trim() || await fetchChipingLinkPreviewTitle(
       job.payload.itemUrl,
       fetchImpl
     ).catch(() => '');
