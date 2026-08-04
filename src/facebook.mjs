@@ -989,6 +989,7 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
   groupUrl,
   itemUrl,
   expectedTitle = '',
+  expectedMessage = '',
   timeoutMs = 30000,
   currentPageOnly = false,
   mediaCandidateLimit = 12,
@@ -1001,6 +1002,12 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
       { requireLoadedLinkImage: true, requiredItemUrl: itemUrl }
     );
     if (completeCurrent.found) return completeCurrent;
+    const completeMessageCurrent = String(expectedMessage || '').trim()
+      ? await findFacebookGroupPostViaLinkCardTitle(page, expectedMessage, {
+          requireLoadedLinkImage: true,
+        })
+      : { found: false, postUrl: '' };
+    if (completeMessageCurrent.found) return completeMessageCurrent;
     const incompleteCurrent = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
     if (currentPageOnly) {
       return {
@@ -1023,6 +1030,17 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
       );
       if (completeSearch.found) return completeSearch;
       incompleteSearch = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
+    }
+    if (String(expectedMessage || '').trim()) {
+      const messageSearchUrl = `${groupUrl}/search/?q=${encodeURIComponent(String(expectedMessage).trim())}`;
+      page = await navigateFacebookForVerification(page, messageSearchUrl);
+      await page.waitForTimeout(2000);
+      const completeMessageSearch = await findFacebookGroupPostViaLinkCardTitle(
+        page,
+        expectedMessage,
+        { requireLoadedLinkImage: true }
+      );
+      if (completeMessageSearch.found) return completeMessageSearch;
     }
     const incompleteResult = incompleteCurrent.found ? incompleteCurrent : incompleteSearch;
     return {
@@ -1499,13 +1517,18 @@ export function hasLoadedFacebookPostLinkImage(mediaMetrics = [], requiredTarget
 
 export async function verifyFacebookPostImageDestination(page, {
   expectedTitle = '',
+  expectedMessage = '',
   itemUrl = '',
   timeoutMs = 10000,
 } = {}) {
   const target = chipingFacebookTarget(itemUrl);
   const normalizedTitle = normalizedFacebookText(expectedTitle);
-  if (!target || normalizedTitle.length < 8) return { verified: false, destinationUrl: '' };
+  const normalizedMessage = normalizedFacebookText(expectedMessage);
+  if (!target || (normalizedTitle.length < 8 && normalizedMessage.length < 8)) {
+    return { verified: false, destinationUrl: '' };
+  }
   const titleTokens = [...new Set(normalizedTitle.match(/[\p{L}\p{N}%]+/gu) || [])];
+  const messageTokens = [...new Set(normalizedMessage.match(/[\p{L}\p{N}%]+/gu) || [])];
   const observedUrls = new Set();
   const waitForDestination = async () => {
     const deadline = Date.now() + Math.max(3000, Math.min(Number(timeoutMs) || 10000, 20000));
@@ -1547,7 +1570,12 @@ export async function verifyFacebookPostImageDestination(page, {
     const matchesTarget = hrefs.some((value) => referencesExactChipingTarget(value, target));
     const matchesTitle = normalizedText.includes(normalizedTitle)
       || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
-    if ((!matchesTarget && !matchesTitle) || !normalizedText.includes('chiping.co.il')) continue;
+    const matchesMessage = normalizedMessage.length >= 8 && (
+      normalizedText.includes(normalizedMessage)
+      || (messageTokens.length >= 3 && messageTokens.every((token) => normalizedText.includes(token)))
+    );
+    if ((!matchesTarget && !matchesTitle && !matchesMessage)
+      || !normalizedText.includes('chiping.co.il')) continue;
 
     const media = article.locator(mediaSelector);
     const candidates = await media.evaluateAll((nodes) => nodes.map((node, index) => {
@@ -1611,7 +1639,12 @@ export async function verifyFacebookPostImageDestination(page, {
     const matchesTarget = hrefs.some((value) => referencesExactChipingTarget(value, target));
     const matchesTitle = normalizedText.includes(normalizedTitle)
       || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
-    if ((!matchesTarget && !matchesTitle) || !normalizedText.includes('chiping.co.il')) continue;
+    const matchesMessage = normalizedMessage.length >= 8 && (
+      normalizedText.includes(normalizedMessage)
+      || (messageTokens.length >= 3 && messageTokens.every((token) => normalizedText.includes(token)))
+    );
+    if ((!matchesTarget && !matchesTitle && !matchesMessage)
+      || !normalizedText.includes('chiping.co.il')) continue;
     const media = dialog.locator(mediaSelector);
     const candidates = await media.evaluateAll((nodes) => nodes.map((node, index) => {
       const rect = node.getBoundingClientRect();
@@ -1904,6 +1937,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       groupUrl: config.groupUrl,
       itemUrl: job.payload.itemUrl,
       expectedTitle,
+      expectedMessage: job.payload.message,
       timeoutMs: 60000,
       currentPageOnly: false,
       requireLoadedLinkImage: true,
@@ -1911,6 +1945,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     if (existing.found) {
       const destination = await verifyFacebookPostImageDestination(page, {
         expectedTitle,
+        expectedMessage: job.payload.message,
         itemUrl: job.payload.itemUrl,
       });
       if (!destination.verified) {
@@ -1993,6 +2028,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       groupUrl: config.groupUrl,
       itemUrl: job.payload.itemUrl,
       expectedTitle,
+      expectedMessage: job.payload.message,
       timeoutMs: 60000,
       currentPageOnly: false,
       requireLoadedLinkImage: true,
@@ -2004,6 +2040,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     }
     const destination = await verifyFacebookPostImageDestination(page, {
       expectedTitle,
+      expectedMessage: job.payload.message,
       itemUrl: job.payload.itemUrl,
     });
     if (!destination.verified) {
