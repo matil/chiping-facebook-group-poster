@@ -1539,9 +1539,15 @@ export async function verifyFacebookPostImageDestination(page, {
     const article = articles.nth(articleIndex);
     if (!await article.isVisible().catch(() => false)) continue;
     const normalizedText = normalizedFacebookText(await article.innerText().catch(() => ''));
+    const hrefs = await article.locator('a[href], [data-lynx-uri]').evaluateAll((links) => links.flatMap((link) => [
+      link.href,
+      link.getAttribute('href'),
+      link.getAttribute('data-lynx-uri'),
+    ].filter(Boolean))).catch(() => []);
+    const matchesTarget = hrefs.some((value) => referencesExactChipingTarget(value, target));
     const matchesTitle = normalizedText.includes(normalizedTitle)
       || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
-    if (!matchesTitle || !normalizedText.includes('chiping.co.il')) continue;
+    if ((!matchesTarget && !matchesTitle) || !normalizedText.includes('chiping.co.il')) continue;
 
     const media = article.locator(mediaSelector);
     const candidates = await media.evaluateAll((nodes) => nodes.map((node, index) => {
@@ -1597,9 +1603,15 @@ export async function verifyFacebookPostImageDestination(page, {
     const dialog = dialogs.nth(dialogIndex);
     if (!await dialog.isVisible().catch(() => false)) continue;
     const normalizedText = normalizedFacebookText(await dialog.innerText().catch(() => ''));
+    const hrefs = await dialog.locator('a[href], [data-lynx-uri]').evaluateAll((links) => links.flatMap((link) => [
+      link.href,
+      link.getAttribute('href'),
+      link.getAttribute('data-lynx-uri'),
+    ].filter(Boolean))).catch(() => []);
+    const matchesTarget = hrefs.some((value) => referencesExactChipingTarget(value, target));
     const matchesTitle = normalizedText.includes(normalizedTitle)
       || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
-    if (!matchesTitle || !normalizedText.includes('chiping.co.il')) continue;
+    if ((!matchesTarget && !matchesTitle) || !normalizedText.includes('chiping.co.il')) continue;
     const media = dialog.locator(mediaSelector);
     const candidates = await media.evaluateAll((nodes) => nodes.map((node, index) => {
       const rect = node.getBoundingClientRect();

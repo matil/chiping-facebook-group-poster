@@ -1354,6 +1354,55 @@ test('Facebook product image click opens the exact Chiping item', async () => {
   });
 });
 
+test('Facebook product image verification accepts a minimal link title only for the exact item URL', async () => {
+  const title = '\u05e2\u05e8\u05db\u05ea \u05de\u05e0\u05d9\u05e7\u05d5\u05e8 \u05d5\u05e4\u05d3\u05d9\u05e7\u05d5\u05e8 Beurer MP 64';
+  let currentUrl = 'https://www.facebook.com/groups/chiping/posts/1760303761641420/';
+  const image = {
+    async click() {
+      currentUrl = 'https://www.chiping.co.il/?item=10463&fbclid=verified';
+    },
+  };
+  const article = {
+    async isVisible() { return true; },
+    async innerText() { return '\u05dc\u05e4\u05e8\u05d8\u05d9 \u05d4\u05d3\u05d9\u05dc\nCHIPING.CO.IL'; },
+    locator(selector) {
+      if (selector === 'a[href], [data-lynx-uri]') {
+        return {
+          async evaluateAll() {
+            return ['https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.chiping.co.il%2F%3Fitem%3D10463'];
+          },
+        };
+      }
+      return {
+        async evaluateAll() { return [{ index: 0, loaded: true, clickable: true }]; },
+        nth() { return image; },
+      };
+    },
+  };
+  const page = {
+    url() { return currentUrl; },
+    context() { return { pages: () => [page] }; },
+    async waitForTimeout() {},
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return {
+          async count() { return 1; },
+          nth() { return article; },
+        };
+      }
+      assert.equal(selector, '[role="dialog"]');
+      return { async count() { return 0; } };
+    },
+  };
+
+  const result = await verifyFacebookPostImageDestination(page, {
+    expectedTitle: title,
+    itemUrl: 'https://www.chiping.co.il/?item=10463',
+  });
+  assert.equal(result.verified, true);
+  assert.match(result.destinationUrl, /item=10463/);
+});
+
 test('Facebook composer stages a versioned URL while preserving the clean item target', () => {
   assert.equal(
     buildFacebookPreviewShareUrl(
