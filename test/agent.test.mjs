@@ -1520,6 +1520,49 @@ test('Facebook product image verification uses the queued description but still 
   assert.ok(result.observedUrls.includes('https://www.chiping.co.il/?item=10671&fbclid=wrong-item'));
 });
 
+test('Facebook description verification does not treat a missing title as a match', async () => {
+  const message = '\u05ea\u05d9\u05d0\u05d5\u05e8 \u05d9\u05d9\u05d7\u05d5\u05d3\u05d9 \u05dc\u05de\u05d5\u05e6\u05e8 \u05d4\u05de\u05d9\u05d5\u05e2\u05d3';
+  let clicked = false;
+  const media = {
+    async evaluateAll() {
+      return [{ index: 0, loaded: true, clickable: true, area: 131000 }];
+    },
+    nth() {
+      return {
+        async click() { clicked = true; },
+      };
+    },
+  };
+  const article = {
+    async isVisible() { return true; },
+    async innerText() { return '\u05e4\u05d5\u05e1\u05d8 \u05d0\u05d7\u05e8 \u05dc\u05d2\u05de\u05e8\u05d9\nCHIPING.CO.IL'; },
+    locator() { return media; },
+  };
+  const page = {
+    async waitForTimeout() {},
+    locator(selector) {
+      if (selector === '[role="article"]') {
+        return {
+          async count() { return 1; },
+          nth() { return article; },
+        };
+      }
+      if (selector === '[role="dialog"]') return { async count() { return 0; } };
+      if (selector === 'body') return { async evaluate() { return null; } };
+      throw new Error(`Unexpected missing-title selector: ${selector}`);
+    },
+  };
+
+  const result = await verifyFacebookPostImageDestination(page, {
+    expectedTitle: '',
+    expectedMessage: message,
+    itemUrl: 'https://www.chiping.co.il/?item=10670',
+    timeoutMs: 3000,
+  });
+  assert.equal(result.verified, false);
+  assert.equal(clicked, false);
+});
+
 test('Facebook composer stages a versioned URL while preserving the clean item target', () => {
   assert.equal(
     buildFacebookPreviewShareUrl(

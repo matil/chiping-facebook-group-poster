@@ -561,8 +561,10 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle,
         : Promise.resolve([]),
     ]);
     const normalizedText = normalizedFacebookText(text);
-    const matchesTitle = normalizedText.includes(normalizedTitle)
-      || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
+    const matchesTitle = normalizedTitle.length >= 8 && (
+      normalizedText.includes(normalizedTitle)
+      || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)))
+    );
     const hasChipingMarker = normalizedText.includes('chiping.co.il');
     const hasLoadedLinkImage = !requireLoadedLinkImage
       || hasLoadedFacebookPostLinkImage(mediaMetrics, requiredTarget);
@@ -1568,8 +1570,10 @@ export async function verifyFacebookPostImageDestination(page, {
       link.getAttribute('data-lynx-uri'),
     ].filter(Boolean))).catch(() => []);
     const matchesTarget = hrefs.some((value) => referencesExactChipingTarget(value, target));
-    const matchesTitle = normalizedText.includes(normalizedTitle)
-      || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
+    const matchesTitle = normalizedTitle.length >= 8 && (
+      normalizedText.includes(normalizedTitle)
+      || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)))
+    );
     const matchesMessage = normalizedMessage.length >= 8 && (
       normalizedText.includes(normalizedMessage)
       || (messageTokens.length >= 3 && messageTokens.every((token) => normalizedText.includes(token)))
@@ -1637,8 +1641,10 @@ export async function verifyFacebookPostImageDestination(page, {
       link.getAttribute('data-lynx-uri'),
     ].filter(Boolean))).catch(() => []);
     const matchesTarget = hrefs.some((value) => referencesExactChipingTarget(value, target));
-    const matchesTitle = normalizedText.includes(normalizedTitle)
-      || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)));
+    const matchesTitle = normalizedTitle.length >= 8 && (
+      normalizedText.includes(normalizedTitle)
+      || (titleTokens.length >= 3 && titleTokens.every((token) => normalizedText.includes(token)))
+    );
     const matchesMessage = normalizedMessage.length >= 8 && (
       normalizedText.includes(normalizedMessage)
       || (messageTokens.length >= 3 && messageTokens.every((token) => normalizedText.includes(token)))
@@ -1675,6 +1681,7 @@ export async function verifyFacebookPostImageDestination(page, {
     if (clicked) return waitForDestination();
   }
 
+  const modalMatchTokens = messageTokens.length >= 3 ? messageTokens : titleTokens;
   const modalImagePoint = await page.locator('body').evaluate((body, tokens) => {
     const normalize = (value) => String(value || '')
       .normalize('NFKC')
@@ -1723,7 +1730,7 @@ export async function verifyFacebookPostImageDestination(page, {
       }
     }
     return null;
-  }, titleTokens).catch(() => null);
+  }, modalMatchTokens).catch(() => null);
   if (modalImagePoint && page.mouse?.click) {
     const clickedFromModal = await page.mouse.click(modalImagePoint.x, modalImagePoint.y)
       .then(() => true)
