@@ -16,6 +16,7 @@ import {
   COUPON_ANNOUNCEMENT_POSTING_POLICY,
   validChipingFacebookPayload,
 } from './payload.mjs';
+import { isFacebookQuietHours } from './quiet-hours.mjs';
 
 const CURATED_POST_INTERVAL_MS = 20 * 60 * 60 * 1000;
 const AMAZON_DEALS_POST_INTERVAL_MS = 5 * 60 * 1000;
@@ -247,6 +248,8 @@ export async function runGitHubAction(env = process.env, options = {}) {
     outcome = 'blocked';
   } else if (!enabled(env.FACEBOOK_ACTION_POSTING_ENABLED)) {
     if (summary.pending || summary.retry) outcome = 'dry_run';
+  } else if (isFacebookQuietHours(nowMs)) {
+    outcome = 'quiet_hours';
   } else if (!resetRequested && nowMs < nextEligiblePostAt(store, nextJob)) {
     outcome = 'cooldown';
   } else {

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { postIntervalMsForJob, runGitHubAction } from '../src/action-runner.mjs';
 import { previewFacebookLink } from '../src/preview-link.mjs';
+import { isFacebookQuietHours } from '../src/quiet-hours.mjs';
 import {
   markVerifiedPostingProfile,
   restoreEncryptedActionState,
@@ -126,6 +127,30 @@ test('GitHub Action ignores malformed repository-dispatch payloads', async () =>
     const result = await runGitHubAction(env);
     assert.equal(result.outcome, 'invalid_payload');
     assert.equal(result.stateChanged, false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('GitHub Action keeps queued posts pending during Israel quiet hours', async () => {
+  assert.equal(isFacebookQuietHours(Date.parse('2026-08-04T21:30:00.000Z')), true);
+  assert.equal(isFacebookQuietHours(Date.parse('2026-08-05T03:00:00.000Z')), false);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, { client_payload: { payload: payload() } });
+    env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    let sends = 0;
+    const result = await runGitHubAction(env, {
+      nowMs: Date.parse('2026-08-04T22:00:00.000Z'),
+      postJob: async () => {
+        sends += 1;
+        return { postUrl: 'https://www.facebook.com/groups/chiping/posts/111/' };
+      },
+    });
+
+    assert.equal(result.outcome, 'quiet_hours');
+    assert.equal(result.summary.pending, 1);
+    assert.equal(sends, 0);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

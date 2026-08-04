@@ -1,4 +1,5 @@
 import { FacebookSessionRequiredError, postFacebookGroupJob } from './facebook.mjs';
+import { isFacebookQuietHours } from './quiet-hours.mjs';
 
 function nextRetryAt(attempts) {
   const delayMs = Math.min(6 * 60 * 60 * 1000, 10 * 60 * 1000 * (2 ** Math.max(0, attempts)));
@@ -42,6 +43,7 @@ export class JobRunner {
 
   async kick() {
     if (this.running || this.config.dryRun) return;
+    if (isFacebookQuietHours()) return;
     this.running = true;
     try {
       while (true) {
