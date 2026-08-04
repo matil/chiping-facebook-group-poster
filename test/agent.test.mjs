@@ -31,6 +31,7 @@ import {
   waitForFacebookComposerToClose,
   waitForFacebookLinkPreview,
 } from '../src/facebook.mjs';
+
 import {
   advanceRememberedLogin,
   fillLoginForm,
@@ -38,6 +39,15 @@ import {
 } from '../src/interactive-login.mjs';
 import { JobStore } from '../src/store.mjs';
 import { validChipingFacebookPayload } from '../src/payload.mjs';
+
+test('Facebook publisher allows slow link-card images up to 90 seconds', async () => {
+  const source = await readFile(path.join(process.cwd(), 'src', 'facebook.mjs'), 'utf8');
+  assert.match(source, /FACEBOOK_COMPOSER_LINK_PREVIEW_TIMEOUT_MS = 90_000/);
+  assert.match(
+    source,
+    /prepareFacebookComposerLinkPreview\([\s\S]*FACEBOOK_COMPOSER_LINK_PREVIEW_TIMEOUT_MS/
+  );
+});
 
 const secret = 'facebook-group-poster-test-secret-with-at-least-32-characters';
 

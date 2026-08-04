@@ -32,6 +32,8 @@ const POST_SELECTORS = [
   '[role="dialog"] [role="button"]:has-text("פרסום")',
 ];
 
+const FACEBOOK_COMPOSER_LINK_PREVIEW_TIMEOUT_MS = 90_000;
+
 export class FacebookSessionRequiredError extends Error {
   constructor(message = 'Facebook session needs an interactive login or security verification') {
     super(message);
@@ -2002,7 +2004,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
         textBox,
         String(job.payload.message),
         buildFacebookPreviewShareUrl(job.payload.itemUrl, job.payload.imageUrl),
-        30000
+        FACEBOOK_COMPOSER_LINK_PREVIEW_TIMEOUT_MS
       );
     } catch (error) {
       await captureFacebookDebug(page, config, 'link-preview-setup-failed', {
