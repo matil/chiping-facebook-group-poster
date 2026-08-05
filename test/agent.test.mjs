@@ -40,6 +40,10 @@ import {
 } from '../src/interactive-login.mjs';
 import { JobStore } from '../src/store.mjs';
 import { validChipingFacebookPayload } from '../src/payload.mjs';
+import {
+  inspectFacebookStatus,
+  repairFacebookBlockedJobs,
+} from '../src/status-runner.mjs';
 
 test('Facebook publisher allows slow link-card images up to 90 seconds', async () => {
   const source = await readFile(path.join(process.cwd(), 'src', 'facebook.mjs'), 'utf8');
@@ -2094,6 +2098,66 @@ test('Facebook security detection does not mistake product compatibility for ver
   );
   assert.equal(isFacebookSecurityChallengeText('נדרש אימות לחשבון Facebook.'), true);
   assert.equal(isFacebookSecurityChallengeText('Complete the security check to continue.'), true);
+});
+
+test('Facebook status repair resumes only access-related blocks after verification', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-status-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    const sessionJob = await store.enqueue(payload());
+    const mediaJob = await store.enqueue(payload({
+      idempotency_key: 'chiping-facebook:v1:9302',
+      productId: '9302',
+      itemUrl: 'https://www.chiping.co.il/?item=9302',
+    }));
+    await store.markBlocked(
+      sessionJob.job.id,
+      'Facebook session needs an interactive login or security verification'
+    );
+    await store.markBlocked(
+      mediaJob.job.id,
+      'Facebook published the Chiping post without its product image link card'
+    );
+
+    const inspection = inspectFacebookStatus(store);
+    assert.equal(inspection.outcome, 'blocked_recoverable');
+    assert.equal(inspection.recoverableIds, '9301');
+    assert.equal(inspection.unresolvedIds, '9302');
+
+    let verifications = 0;
+    const repaired = await repairFacebookBlockedJobs(store, async () => {
+      verifications += 1;
+    });
+    assert.equal(verifications, 1);
+    assert.equal(repaired.outcome, 'partially_repaired');
+    assert.equal(repaired.resumed, 1);
+    assert.equal(store.state.jobs[sessionJob.job.id].status, 'retry');
+    assert.equal(store.state.jobs[mediaJob.job.id].status, 'blocked');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('Facebook status repair keeps the queue blocked when access verification fails', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-status-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    const queued = await store.enqueue(payload());
+    await store.markBlocked(
+      queued.job.id,
+      'Facebook session needs an interactive login or security verification'
+    );
+
+    const result = await repairFacebookBlockedJobs(store, async () => {
+      throw new FacebookSessionRequiredError();
+    });
+    assert.equal(result.outcome, 'verification_required');
+    assert.equal(store.state.jobs[queued.job.id].status, 'blocked');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('Facebook composer stages the item URL, keeps its card, and removes the visible URL', async () => {

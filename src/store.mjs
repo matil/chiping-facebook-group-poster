@@ -211,11 +211,12 @@ export class JobStore {
     return structuredClone(job);
   }
 
-  async resumeBlocked() {
+  async resumeBlocked(predicate = null) {
     const now = new Date().toISOString();
     let resumed = 0;
     for (const job of Object.values(this.state.jobs)) {
       if (job?.status !== 'blocked') continue;
+      if (typeof predicate === 'function' && !predicate(job)) continue;
       job.status = 'retry';
       job.next_attempt_at = now;
       job.last_error = null;

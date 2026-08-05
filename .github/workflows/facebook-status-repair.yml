@@ -1,0 +1,121 @@
+name: Chiping Facebook Status Repair
+
+on:
+  schedule:
+    - cron: '47 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: chiping-facebook-group-poster
+  cancel-in-progress: false
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore encrypted Facebook state
+        uses: actions/cache/restore@v4
+        with:
+          path: .facebook-state
+          key: facebook-state-${{ github.run_id }}
+          restore-keys: |
+            facebook-state-
+
+      - name: Inspect Facebook queue without a browser
+        id: inspect
+        env:
+          FACEBOOK_STATUS_MODE: inspect
+          FACEBOOK_ACTION_STATE_FILE: ${{ github.workspace }}/.facebook-state/facebook-agent.enc
+          FACEBOOK_STATE_ENCRYPTION_KEY: ${{ secrets.FACEBOOK_STATE_ENCRYPTION_KEY }}
+          FACEBOOK_STORAGE_STATE_FILE: ${{ runner.temp }}/chiping-facebook-data/facebook-storage-state.json
+          POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
+        run: node src/status-runner.mjs
+
+      - uses: actions/setup-node@v4
+        if: steps.inspect.outputs.needs_repair == 'true'
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Restore Chromium
+        if: steps.inspect.outputs.needs_repair == 'true'
+        id: browser-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies for repair
+        if: steps.inspect.outputs.needs_repair == 'true'
+        run: npm ci
+
+      - name: Install Chromium for repair
+        if: steps.inspect.outputs.needs_repair == 'true' && steps.browser-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Save Chromium
+        if: steps.inspect.outputs.needs_repair == 'true' && steps.browser-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Prepare ephemeral Facebook credentials
+        if: steps.inspect.outputs.needs_repair == 'true'
+        shell: bash
+        env:
+          FACEBOOK_LOGIN_EMAIL: ${{ secrets.FACEBOOK_LOGIN_EMAIL }}
+          FACEBOOK_LOGIN_PASSWORD: ${{ secrets.FACEBOOK_LOGIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/chiping-facebook-secrets"
+          printf %s "$FACEBOOK_LOGIN_EMAIL" > "$RUNNER_TEMP/chiping-facebook-secrets/email"
+          printf %s "$FACEBOOK_LOGIN_PASSWORD" > "$RUNNER_TEMP/chiping-facebook-secrets/password"
+
+      - name: Verify access and repair recoverable blocks
+        id: repair
+        if: steps.inspect.outputs.needs_repair == 'true'
+        env:
+          FACEBOOK_STATUS_MODE: repair
+          FACEBOOK_ACTION_STATE_FILE: ${{ github.workspace }}/.facebook-state/facebook-agent.enc
+          FACEBOOK_STATE_ENCRYPTION_KEY: ${{ secrets.FACEBOOK_STATE_ENCRYPTION_KEY }}
+          FACEBOOK_LOGIN_EMAIL_FILE: ${{ runner.temp }}/chiping-facebook-secrets/email
+          FACEBOOK_LOGIN_PASSWORD_FILE: ${{ runner.temp }}/chiping-facebook-secrets/password
+          FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}
+          FACEBOOK_TRUST_VERIFIED_PROFILE: 'true'
+          FACEBOOK_STORAGE_STATE_FILE: ${{ runner.temp }}/chiping-facebook-data/facebook-storage-state.json
+          POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
+          POSTER_HEADLESS: 'true'
+        run: node src/status-runner.mjs
+
+      - name: Save repaired Facebook state
+        if: always() && (steps.inspect.outputs.state_changed == 'true' || steps.repair.outputs.state_changed == 'true')
+        uses: actions/cache/save@v4
+        with:
+          path: .facebook-state
+          key: facebook-state-${{ github.run_id }}
+
+      - name: Report Facebook status
+        if: always()
+        env:
+          INSPECT_OUTCOME: ${{ steps.inspect.outputs.outcome }}
+          REPAIR_OUTCOME: ${{ steps.repair.outputs.outcome }}
+          BLOCKED_IDS: ${{ steps.repair.outputs.blocked_product_ids || steps.inspect.outputs.blocked_product_ids }}
+          RESUMED: ${{ steps.repair.outputs.resumed }}
+          ERROR: ${{ steps.repair.outputs.error || steps.inspect.outputs.error }}
+        run: |
+          outcome="${REPAIR_OUTCOME:-$INSPECT_OUTCOME}"
+          printf 'Facebook status=%s blocked=%s resumed=%s error=%s\n' \
+            "${outcome:-unknown}" "${BLOCKED_IDS:-none}" "${RESUMED:-0}" "${ERROR:-none}"
+          case "$outcome" in
+            healthy|repaired) exit 0 ;;
+            *) exit 1 ;;
+          esac

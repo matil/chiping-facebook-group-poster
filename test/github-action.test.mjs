@@ -766,3 +766,24 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
   assert.match(linkPreviewWorkflow, /facebook-link-preview-\$\{\{ github\.run_id \}\}/);
   assert.doesNotMatch(linkPreviewWorkflow, /FACEBOOK_ACTION_POSTING_ENABLED/);
 });
+
+test('hourly Facebook status repair stays browser-free unless recovery is needed', async () => {
+  const workflow = await readFile(
+    path.join(process.cwd(), '.github', 'workflows', 'facebook-status-repair.yml'),
+    'utf8'
+  );
+  assert.match(workflow, /cron: '47 \* \* \* \*'/);
+  assert.match(workflow, /group: chiping-facebook-group-poster/);
+  assert.match(workflow, /Inspect Facebook queue without a browser/);
+  assert.match(workflow, /FACEBOOK_STATUS_MODE: inspect/);
+  assert.match(workflow, /FACEBOOK_STATUS_MODE: repair/);
+  assert.match(workflow, /if: steps\.inspect\.outputs\.needs_repair == 'true'/);
+  assert.match(workflow, /Verify access and repair recoverable blocks/);
+  assert.doesNotMatch(workflow, /FACEBOOK_ACTION_POSTING_ENABLED/);
+
+  const inspectIndex = workflow.indexOf('Inspect Facebook queue without a browser');
+  const setupNodeIndex = workflow.indexOf('actions/setup-node@v4');
+  const chromiumIndex = workflow.indexOf('Restore Chromium');
+  assert.ok(inspectIndex >= 0 && inspectIndex < setupNodeIndex);
+  assert.ok(setupNodeIndex < chromiumIndex);
+});
