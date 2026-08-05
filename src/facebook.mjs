@@ -7,7 +7,7 @@ import {
 
 const LOGIN_URL_RE = /\/login/i;
 const SECURITY_URL_RE = /\/(?:checkpoint|recover|two_step_verification|security)/i;
-const SECURITY_TEXT_RE = /(?:security check|checkpoint|two-factor|approve your login|בדיקת אבטחה|אימות)/i;
+const SECURITY_TEXT_RE = /(?:security check|checkpoint|two-factor|approve your login|בדיקת אבטחה|(?:^|[^\u0590-\u05ff])אימות(?:$|[^\u0590-\u05ff]))/i;
 
 const COMPOSER_SELECTORS = [
   '[role="button"][aria-label*="Write something"]',
@@ -112,10 +112,14 @@ export async function sortFacebookGroupFeedNewest(page) {
   return true;
 }
 
+export function isFacebookSecurityChallengeText(value) {
+  return SECURITY_TEXT_RE.test(String(value || ''));
+}
+
 async function isSecurityChallenge(page) {
   if (SECURITY_URL_RE.test(page.url())) return true;
   const text = await page.locator('body').innerText({ timeout: 1500 }).catch(() => '');
-  return SECURITY_TEXT_RE.test(text);
+  return isFacebookSecurityChallengeText(text);
 }
 
 export async function readLoginCredentials(config) {

@@ -19,6 +19,7 @@ import {
   findFacebookGroupComposer,
   hasLoadedFacebookPostLinkImage,
   hasLoadedFacebookPreviewVisual,
+  isFacebookSecurityChallengeText,
   loginIfNeeded,
   normalizeFacebookGroupPostUrl,
   prepareFacebookComposerLinkPreview,
@@ -2084,6 +2085,15 @@ test('Facebook composer text falls back to keyboard input and verifies retention
 
   await fillFacebookComposerText(page, textBox, 'Verified deal text');
   assert.equal(value, 'Verified deal text');
+});
+
+test('Facebook security detection does not mistake product compatibility for verification', () => {
+  assert.equal(
+    isFacebookSecurityChallengeText('בזכות התאימות ל-MagSafe תוכלו להטעין בקלות.'),
+    false
+  );
+  assert.equal(isFacebookSecurityChallengeText('נדרש אימות לחשבון Facebook.'), true);
+  assert.equal(isFacebookSecurityChallengeText('Complete the security check to continue.'), true);
 });
 
 test('Facebook composer stages the item URL, keeps its card, and removes the visible URL', async () => {
