@@ -14,10 +14,6 @@ import { JobStore } from './store.mjs';
 const SESSION_BLOCK_RE = /(?:facebook session|interactive login|security verification|security check|session expired|login credentials|posting profile|group posting is not available|composer could not be opened|post text box is not available)/i;
 const MEDIA_BLOCK_RE = /(?:product image|media|link card|clickable image|published[^.]*without)/i;
 
-function enabled(value) {
-  return /^(?:1|true|yes|on)$/i.test(String(value || '').trim());
-}
-
 function blockedJobs(store) {
   return store.state.order
     .map((id) => store.state.jobs[id])
@@ -102,12 +98,13 @@ export async function runFacebookStatus(env = process.env, options = {}) {
   }
 
   await mkdir(config.dataDir, { recursive: true });
-  await restoreEncryptedActionState({
+  const restored = await restoreEncryptedActionState({
     encryptedFile,
     secret: stateSecret,
     dataDir: config.dataDir,
     storageStateFile: config.storageStateFile,
   });
+  if (!restored) throw new Error('Encrypted Facebook state is missing');
   const store = new JobStore(config.dataDir);
   let stateChanged = await store.init();
   const mode = String(env.FACEBOOK_STATUS_MODE || options.mode || 'inspect').trim().toLowerCase();

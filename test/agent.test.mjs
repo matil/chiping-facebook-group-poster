@@ -43,6 +43,7 @@ import { validChipingFacebookPayload } from '../src/payload.mjs';
 import {
   inspectFacebookStatus,
   repairFacebookBlockedJobs,
+  runFacebookStatus,
 } from '../src/status-runner.mjs';
 
 test('Facebook publisher allows slow link-card images up to 90 seconds', async () => {
@@ -2155,6 +2156,23 @@ test('Facebook status repair keeps the queue blocked when access verification fa
     });
     assert.equal(result.outcome, 'verification_required');
     assert.equal(store.state.jobs[queued.job.id].status, 'blocked');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('Facebook status checker fails closed when encrypted state is missing', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-status-'));
+  try {
+    await assert.rejects(
+      runFacebookStatus({
+        FACEBOOK_ACTION_STATE_FILE: path.join(directory, 'missing.enc'),
+        FACEBOOK_STATE_ENCRYPTION_KEY: secret,
+        FACEBOOK_STORAGE_STATE_FILE: path.join(directory, 'storage.json'),
+        POSTER_DATA_DIR: path.join(directory, 'data'),
+      }),
+      /Encrypted Facebook state is missing/
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
