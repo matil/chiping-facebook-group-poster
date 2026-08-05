@@ -555,7 +555,8 @@ test('a duplicate fast product event refreshes its image and retries immediately
 test('GitHub Action can reset and repost one falsely completed product', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
   try {
-    const firstNow = Date.now();
+    // Keep both the initial post and the 21-hour retry outside Israel quiet hours.
+    const firstNow = Date.parse('2030-08-04T07:00:00.000Z');
     const env = await actionEnvironment(directory, { client_payload: { payload: payload() } });
     env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
     await runGitHubAction(env, {
