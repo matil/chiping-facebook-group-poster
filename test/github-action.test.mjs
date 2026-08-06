@@ -478,6 +478,10 @@ test('only Facebook access failures can freeze the whole queue', () => {
     status: 'blocked',
     last_error: 'Facebook product image does not open the exact Chiping item',
   }), false);
+  assert.equal(blocksFacebookQueue({
+    status: 'blocked',
+    last_error: 'Facebook preparation incomplete: posting profile metadata is unavailable',
+  }), false);
 });
 
 test('one malformed media post does not freeze unrelated queued products', async () => {

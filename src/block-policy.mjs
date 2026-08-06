@@ -9,7 +9,10 @@ export function isFacebookMediaBlock(job = {}) {
 
 export function isFacebookSessionBlock(job = {}) {
   const reason = String(job.last_error || '');
-  return Boolean(reason) && !MEDIA_BLOCK_RE.test(reason) && SESSION_BLOCK_RE.test(reason);
+  return Boolean(reason)
+    && !PREPARATION_BLOCK_RE.test(reason)
+    && !MEDIA_BLOCK_RE.test(reason)
+    && SESSION_BLOCK_RE.test(reason);
 }
 
 export function isFacebookPreparationBlock(job = {}) {

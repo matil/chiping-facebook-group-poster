@@ -8,6 +8,7 @@ import {
 import {
   deleteFacebookGroupPost,
   deleteFacebookGroupPostByMessage,
+  FacebookPostUnavailableError,
   FacebookSessionRequiredError,
   findFacebookGroupPost,
   validateFacebookJobReadiness,
@@ -128,6 +129,10 @@ export async function repairFacebookBlockedJobs(store, verifyAccess, options = {
       });
       repairedIds.add(job.id);
     } catch (error) {
+      if (error instanceof FacebookPostUnavailableError) {
+        await store.markSkipped(job.id, error.message);
+        continue;
+      }
       console.warn(
         `[facebook-status] preparation still incomplete for ${jobIdentifier(job)}: ${String(error?.message || 'unknown').slice(0, 160)}`
       );

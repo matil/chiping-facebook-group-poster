@@ -2330,6 +2330,31 @@ test('hourly Facebook status repair resumes the same item only after preparation
   }
 });
 
+test('hourly Facebook status repair skips only an unavailable prepared item', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-status-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    const queued = await store.enqueue(payload());
+    await store.markBlocked(
+      queued.job.id,
+      'Facebook preparation incomplete: Chiping item is no longer available for Facebook posting'
+    );
+
+    const result = await repairFacebookBlockedJobs(store, async () => {}, {
+      validateReadiness: async () => {
+        throw new FacebookPostUnavailableError();
+      },
+    });
+
+    assert.equal(store.state.jobs[queued.job.id].status, 'skipped');
+    assert.equal(result.blockedIds, '');
+    assert.equal(result.outcome, 'repaired');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('Facebook media repair finds the exact item by its description before deleting', async () => {
   const job = {
     product_id: '10809',
