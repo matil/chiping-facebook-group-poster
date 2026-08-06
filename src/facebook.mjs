@@ -1452,6 +1452,7 @@ export async function waitForFacebookLinkPreview(
       dialog.locator(visualSelector).evaluateAll((nodes) => (
         nodes.map((node) => {
           const rect = node.getBoundingClientRect();
+          const link = node.closest('a[href], [data-lynx-uri], [role="link"]');
           return {
             width: rect.width,
             height: rect.height,
@@ -1464,20 +1465,28 @@ export async function waitForFacebookLinkPreview(
               && Number(node.naturalHeight) >= 120
               && !/^data:/i.test(String(node.currentSrc || node.src || ''))
             ) || /url\(["']?https?:\/\//i.test(getComputedStyle(node).backgroundImage || ''),
+            clickTargets: link ? [
+              link.href,
+              link.getAttribute('href'),
+              link.getAttribute('data-lynx-uri'),
+            ].map((value) => String(value || '')).filter(Boolean) : [],
           };
         })
       )).catch(() => []),
     ]);
     const hasTargetAnchor = hrefs.some((href) => referencesExactChipingTarget(href, chipingTarget));
     const hostOccurrences = String(dialogText || '').toLowerCase().split(host).length - 1;
-    const hasLargePreviewVisual = hasLoadedFacebookPreviewVisual(visualMetrics);
+    const hasExactTargetPreviewVisual = hasLoadedFacebookPreviewVisual(
+      visualMetrics,
+      chipingTarget
+    );
     lastProbe = {
       hasTargetAnchor,
       hostOccurrences,
       hrefs: hrefs.slice(0, 20),
       visualMetrics: visualMetrics.slice(0, 30),
     };
-    if (hasLargePreviewVisual && (hasTargetAnchor || hostOccurrences >= 1)) {
+    if (hasExactTargetPreviewVisual) {
       return { hasTargetAnchor, hostOccurrences, visualMetrics };
     }
     await page.waitForTimeout(500);
@@ -1527,12 +1536,14 @@ export async function waitForFacebookLinkPreview(
   throw error;
 }
 
-export function hasLoadedFacebookPreviewVisual(visualMetrics = []) {
+export function hasLoadedFacebookPreviewVisual(visualMetrics = [], requiredTarget = null) {
   return (Array.isArray(visualMetrics) ? visualMetrics : []).some((metric) => (
     metric?.visible === true
     && Number(metric.width) >= 180
     && Number(metric.height) >= 120
     && metric.imageLoaded !== false
+    && (!requiredTarget || (Array.isArray(metric.clickTargets) ? metric.clickTargets : [])
+      .some((value) => referencesExactChipingTarget(value, requiredTarget)))
   ));
 }
 
@@ -1800,6 +1811,9 @@ export async function prepareFacebookComposerLinkPreview(
 ) {
   const cleanMessage = cleanFacebookComposerMessage(message, itemUrl);
   if (!cleanMessage) throw new Error('Facebook post text is empty after removing the preview URL');
+  const cleanItemUrl = new URL(itemUrl);
+  cleanItemUrl.searchParams.delete('fb_preview');
+  const retainedItemUrl = cleanItemUrl.href;
 
   await fillFacebookComposerText(page, textBox, `${cleanMessage}\n\n${itemUrl}`);
   const stagedPreview = await waitForFacebookLinkPreview(
@@ -1808,18 +1822,18 @@ export async function prepareFacebookComposerLinkPreview(
     timeoutMs,
     textBox
   );
-  if (!stagedPreview.hasTargetAnchor) {
-    throw new Error('Facebook preview is not linked to the exact Chiping item');
-  }
-
   const selectedUrl = await selectFacebookComposerText(textBox, itemUrl);
-  if (!selectedUrl) throw new Error('Facebook composer URL could not be selected for removal');
+  if (!selectedUrl) throw new Error('Facebook composer preview URL could not be selected');
   await page.keyboard.press('Backspace');
+  await page.keyboard.insertText(retainedItemUrl);
   await page.waitForTimeout(500);
   const visibleText = String(await textBox.innerText().catch(() => ''));
   const target = chipingFacebookTarget(itemUrl);
-  if (!target || referencesExactChipingTarget(visibleText, target)) {
-    throw new Error('Facebook composer retained the visible Chiping URL');
+  if (!target || !referencesExactChipingTarget(visibleText, target)) {
+    throw new Error('Facebook composer did not retain the clean Chiping item URL');
+  }
+  if (visibleText.includes('fb_preview=')) {
+    throw new Error('Facebook composer retained the preview cache key');
   }
 
   const retainedPreview = await waitForFacebookLinkPreview(
@@ -1828,13 +1842,11 @@ export async function prepareFacebookComposerLinkPreview(
     Math.min(Math.max(5000, Number(timeoutMs) || 30000), 10000),
     textBox
   );
-  if (!retainedPreview.hasTargetAnchor) {
-    throw new Error('Facebook detached the exact Chiping item link after URL removal');
-  }
   return {
     ...retainedPreview,
     stagedPreview,
-    visibleUrlRemoved: true,
+    visibleUrlRemoved: false,
+    visibleUrlRetained: retainedItemUrl,
   };
 }
 

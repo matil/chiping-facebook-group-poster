@@ -1335,6 +1335,7 @@ test('Facebook composer requires a rendered Chiping link card before publishing'
               visible: true,
               tagName: 'A',
               role: '',
+              clickTargets: ['https://www.chiping.co.il/?item=9301'],
             }];
           },
         };
@@ -1623,7 +1624,7 @@ test('Facebook composer recognizes a CSS-backed link card around a contained pro
       if (selector === 'a[href]') {
         return {
           async evaluateAll() {
-            return ['https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.chiping.co.il'];
+            return ['https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.chiping.co.il%2F%3Fitem%3D10042'];
           },
         };
       }
@@ -1635,6 +1636,7 @@ test('Facebook composer recognizes a CSS-backed link card around a contained pro
             visible: true,
             tagName: 'DIV',
             role: 'img',
+            clickTargets: ['https://www.chiping.co.il/?item=10042'],
           }];
         },
       };
@@ -1652,7 +1654,7 @@ test('Facebook composer recognizes a CSS-backed link card around a contained pro
     page,
     'https://www.chiping.co.il/?item=10042'
   );
-  assert.equal(result.hasTargetAnchor, false);
+  assert.equal(result.hasTargetAnchor, true);
   assert.equal(result.hostOccurrences, 2);
   assert.equal(result.visualMetrics[0].role, 'img');
 });
@@ -1681,6 +1683,7 @@ test('Facebook link-card validation stays scoped to the textbox composer dialog'
             visible: true,
             tagName: 'DIV',
             role: 'img',
+            clickTargets: ['https://www.chiping.co.il/?item=10042'],
           }];
         },
       };
@@ -2288,7 +2291,7 @@ test('Facebook status checker fails closed when encrypted state is missing', asy
   }
 });
 
-test('Facebook composer stages the item URL, keeps its card, and removes the visible URL', async () => {
+test('Facebook composer stages a versioned card and retains only the clean visible item URL', async () => {
   const canonicalUrl = 'https://www.chiping.co.il/?item=9301';
   const itemUrl = `${canonicalUrl}&fb_preview=fresh-image`;
   const cleanMessage = '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd \u05dc-AliExpress';
@@ -2320,7 +2323,14 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
         return {
           async evaluateAll() {
             return previewReady
-              ? [{ width: 500, height: 262, visible: true, tagName: 'A', role: 'link' }]
+              ? [{
+                width: 500,
+                height: 262,
+                visible: true,
+                tagName: 'A',
+                role: 'link',
+                clickTargets: [`https://l.facebook.com/l.php?u=${encodeURIComponent(itemUrl)}`],
+              }]
               : [];
           },
         };
@@ -2350,9 +2360,12 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
     async waitForTimeout() {},
     keyboard: {
       async press(key) {
-        if (key === 'Backspace' && selection) value = value.replace(selection, '');
+        if (key === 'Backspace' && selection) {
+          value = value.replace(selection, '');
+          selection = '';
+        }
       },
-      async insertText(text) { value = text; },
+      async insertText(text) { value += text; },
     },
   };
 
@@ -2364,78 +2377,28 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
   );
 
   assert.deepEqual(fills, [`${cleanMessage}\n\n${itemUrl}`]);
-  assert.equal(value.trim(), cleanMessage);
+  assert.equal(value.trim(), `${cleanMessage}\n\n${canonicalUrl}`);
   assert.equal(previewReady, true);
-  assert.equal(result.visibleUrlRemoved, true);
+  assert.equal(result.visibleUrlRemoved, false);
+  assert.equal(result.visibleUrlRetained, canonicalUrl);
   assert.equal(result.hasTargetAnchor, true);
-  assert.equal(result.hostOccurrences, 1);
+  assert.equal(result.hostOccurrences, 2);
 });
 
-test('Facebook composer rejects an image-looking card detached from the exact item link', async () => {
-  const itemUrl = 'https://www.chiping.co.il/?item=9302&fb_preview=fresh-image';
-  let value = '';
-  let previewReady = false;
-  let selection = '';
-  const visualSelector = [
-    'a[href]',
-    '[role="link"]',
-    'img',
-    '[role="img"]',
-    '[data-visualcompletion="media-vc-image"]',
-    '[style*="background-image"]',
-  ].join(', ');
-  const dialog = {
-    async innerText() { return previewReady ? `${value}\nCHIPING.CO.IL` : value; },
-    locator(selector) {
-      if (selector === 'a[href]') {
-        return {
-          async evaluateAll() {
-            return value.includes(itemUrl)
-              ? [`https://l.facebook.com/l.php?u=${encodeURIComponent(itemUrl)}`]
-              : ['https://www.chiping.co.il/'];
-          },
-        };
-      }
-      if (selector === visualSelector) {
-        return {
-          async evaluateAll() {
-            return previewReady
-              ? [{ width: 500, height: 262, visible: true, tagName: 'A', role: 'link' }]
-              : [];
-          },
-        };
-      }
-      throw new Error(`Unexpected selector: ${selector}`);
-    },
-  };
-  const textBox = {
-    async click() {},
-    async fill(text) {
-      value = text;
-      if (text.includes(itemUrl)) previewReady = true;
-    },
-    async innerText() { return value; },
-    async evaluate(_callback, target) {
-      if (!value.includes(target)) return false;
-      selection = target;
-      return true;
-    },
-    locator() { return dialog; },
-  };
-  const page = {
-    async waitForTimeout() {},
-    keyboard: {
-      async press(key) {
-        if (key === 'Backspace' && selection) value = value.replace(selection, '');
-      },
-      async insertText(text) { value = text; },
-    },
-  };
+test('Facebook composer rejects an image card that links only to the homepage', () => {
+  const itemTarget = { type: 'item', value: '9302' };
+  const homepageCard = [{
+    width: 500,
+    height: 262,
+    visible: true,
+    tagName: 'A',
+    role: 'link',
+    imageLoaded: true,
+    clickTargets: ['https://www.chiping.co.il/'],
+  }];
 
-  await assert.rejects(
-    prepareFacebookComposerLinkPreview(page, textBox, 'תיאור מוצר מלא', itemUrl),
-    /detached the exact Chiping item link/
-  );
+  assert.equal(hasLoadedFacebookPreviewVisual(homepageCard), true);
+  assert.equal(hasLoadedFacebookPreviewVisual(homepageCard, itemTarget), false);
 });
 
 test('Facebook URL range selection fails closed when the staged URL is absent', async () => {
