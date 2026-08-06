@@ -40,7 +40,7 @@ import {
   loginCompleted,
 } from '../src/interactive-login.mjs';
 import { JobStore } from '../src/store.mjs';
-import { validChipingFacebookPayload } from '../src/payload.mjs';
+import { chipingFacebookTarget, validChipingFacebookPayload } from '../src/payload.mjs';
 import {
   inspectFacebookStatus,
   repairFacebookBlockedJobs,
@@ -1594,13 +1594,13 @@ test('Facebook description verification does not treat a missing title as a matc
   assert.equal(clicked, false);
 });
 
-test('Facebook composer stages a versioned URL while preserving the clean item target', () => {
+test('Facebook composer uses a stable per-item share path', () => {
   assert.equal(
     buildFacebookPreviewShareUrl(
       'https://www.chiping.co.il/?item=10432',
       'https://www.chiping.co.il/facebook-images/10432.jpg?v=411b61b15fcaab1e'
     ),
-    'https://www.chiping.co.il/?item=10432&fb_preview=411b61b15fcaab1e'
+    'https://www.chiping.co.il/items/10432'
   );
   assert.equal(
     buildFacebookPreviewShareUrl(
@@ -1608,7 +1608,18 @@ test('Facebook composer stages a versioned URL while preserving the clean item t
       'https://www.chiping.co.il/facebook-images/10432.jpg?v=411b61b15fcaab1e',
       2
     ),
-    'https://www.chiping.co.il/?item=10432&fb_preview=411b61b15fcaab1e-r2'
+    'https://www.chiping.co.il/items/10432'
+  );
+});
+
+test('stable Facebook item paths resolve to the same Chiping product target', () => {
+  assert.deepEqual(
+    chipingFacebookTarget('https://www.chiping.co.il/items/10432'),
+    { type: 'item', value: '10432' }
+  );
+  assert.deepEqual(
+    chipingFacebookTarget('https://www.chiping.co.il/?item=10432'),
+    { type: 'item', value: '10432' }
   );
 });
 

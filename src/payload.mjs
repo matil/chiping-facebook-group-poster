@@ -70,7 +70,10 @@ export function assertValidChipingFacebookPayload(payload) {
 export function chipingFacebookTarget(value) {
   try {
     const url = new URL(String(value || ''));
-    if (url.protocol !== 'https:' || url.hostname !== 'www.chiping.co.il' || url.pathname !== '/') return null;
+    if (url.protocol !== 'https:' || url.hostname !== 'www.chiping.co.il') return null;
+    const sharePathMatch = url.pathname.match(/^\/items\/(\d+)\/?$/);
+    if (sharePathMatch) return { type: 'item', value: sharePathMatch[1] };
+    if (url.pathname !== '/') return null;
     const productId = String(url.searchParams.get('item') || '');
     if (/^\d+$/.test(productId)) return { type: 'item', value: productId };
     if (url.searchParams.get('coupons') === '1') return { type: 'coupons', value: '1' };

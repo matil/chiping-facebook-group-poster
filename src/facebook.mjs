@@ -344,6 +344,10 @@ function referencesExactChipingItem(value, productId) {
   const references = [
     `www.chiping.co.il/?item=${productId}`,
     `chiping.co.il/?item=${productId}`,
+    `www.chiping.co.il/items/${productId}/`,
+    `chiping.co.il/items/${productId}/`,
+    `www.chiping.co.il/items/${productId}`,
+    `chiping.co.il/items/${productId}`,
   ];
   return references.some((reference) => {
     let offset = decoded.indexOf(reference);
@@ -445,9 +449,13 @@ export async function findFacebookGroupPostViaTargetAnchor(page, itemUrl) {
     const referencesItem = (value) => {
       const decoded = decode(value);
       const references = expectedTarget.type === 'item'
-        ? [
+          ? [
             `www.chiping.co.il/?item=${expectedTarget.value}`,
             `chiping.co.il/?item=${expectedTarget.value}`,
+            `www.chiping.co.il/items/${expectedTarget.value}/`,
+            `chiping.co.il/items/${expectedTarget.value}/`,
+            `www.chiping.co.il/items/${expectedTarget.value}`,
+            `chiping.co.il/items/${expectedTarget.value}`,
           ]
         : [
             'www.chiping.co.il/?coupons=1',
@@ -662,6 +670,10 @@ export async function findFacebookGroupPostViaLinkCardTitle(page, expectedTitle,
         ? [
             `www.chiping.co.il/?item=${requiredTarget.value}`,
             `chiping.co.il/?item=${requiredTarget.value}`,
+            `www.chiping.co.il/items/${requiredTarget.value}/`,
+            `chiping.co.il/items/${requiredTarget.value}/`,
+            `www.chiping.co.il/items/${requiredTarget.value}`,
+            `chiping.co.il/items/${requiredTarget.value}`,
           ]
         : ['www.chiping.co.il/?coupons=1', 'chiping.co.il/?coupons=1'];
       return references.some((reference) => {
@@ -1229,7 +1241,8 @@ export async function validateChipingLinkPreviewMetadata(
   }
   const actualImage = new URL(imageUrl);
   const expectedImage = new URL(String(expectedImageUrl || ''));
-  const itemId = new URL(String(itemUrl || '')).searchParams.get('item') || '';
+  const previewTarget = chipingFacebookTarget(itemUrl);
+  const itemId = previewTarget?.type === 'item' ? previewTarget.value : '';
   const currentPreparedImage = /^\d+$/.test(itemId)
     && actualImage.protocol === 'https:'
     && actualImage.hostname === 'www.chiping.co.il'
@@ -1378,6 +1391,11 @@ function cleanFacebookComposerMessage(message, itemUrl) {
     const canonicalUrl = new URL(url);
     canonicalUrl.searchParams.delete('fb_preview');
     removableUrls.add(canonicalUrl.href);
+    const target = chipingFacebookTarget(url);
+    if (target?.type === 'item') {
+      removableUrls.add(`https://www.chiping.co.il/?item=${target.value}`);
+      removableUrls.add(`https://www.chiping.co.il/items/${target.value}`);
+    }
   } catch {
     // The caller validates supported Chiping URLs before this helper runs.
   }
@@ -1784,16 +1802,11 @@ export async function verifyFacebookPostImageDestination(page, {
 export function buildFacebookPreviewShareUrl(itemUrl, imageUrl, retryAttempt = 0) {
   try {
     const target = new URL(String(itemUrl || ''));
-    const image = new URL(String(imageUrl || ''));
-    const version = String(image.searchParams.get('v') || '').trim();
     if (
       target.hostname === 'www.chiping.co.il'
       && /^\d+$/.test(String(target.searchParams.get('item') || ''))
-      && version
     ) {
-      const retry = Math.max(0, Math.min(Number(retryAttempt) || 0, 99));
-      const previewKey = retry ? `${version.slice(0, 55)}-r${retry}` : version.slice(0, 64);
-      target.searchParams.set('fb_preview', previewKey);
+      return `https://www.chiping.co.il/items/${target.searchParams.get('item')}`;
     }
     return target.href;
   } catch {
@@ -1928,8 +1941,9 @@ export async function previewFacebookGroupLinkJob(payload, config, options = {})
     await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await loginIfNeeded(page, config);
     await selectPostingProfile(page, config);
+    const shareUrl = buildFacebookPreviewShareUrl(payload.itemUrl, payload.imageUrl);
     const previewMetadata = await waitForChipingLinkPreviewMetadata(
-      payload.itemUrl,
+      shareUrl,
       payload.imageUrl,
       fetchImpl
     );
@@ -1943,7 +1957,7 @@ export async function previewFacebookGroupLinkJob(payload, config, options = {})
         page,
         textBox,
         String(payload.message),
-        buildFacebookPreviewShareUrl(payload.itemUrl, payload.imageUrl),
+        shareUrl,
         30000
       );
       await captureFacebookDebug(page, config, 'link-preview-dry-run', {
@@ -2035,10 +2049,15 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     if (!textBox) throw new Error('Facebook group post text box was not found');
     await captureFacebookDebug(page, config, 'composer-open');
 
+    const shareUrl = buildFacebookPreviewShareUrl(
+      job.payload.itemUrl,
+      job.payload.imageUrl,
+      job.attempts
+    );
     let previewMetadata;
     try {
       previewMetadata = await waitForChipingLinkPreviewMetadata(
-        job.payload.itemUrl,
+        shareUrl,
         job.payload.imageUrl,
         fetchImpl
       );
@@ -2056,7 +2075,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
         page,
         textBox,
         String(job.payload.message),
-        buildFacebookPreviewShareUrl(job.payload.itemUrl, job.payload.imageUrl, job.attempts),
+        shareUrl,
         FACEBOOK_COMPOSER_LINK_PREVIEW_TIMEOUT_MS
       );
     } catch (error) {
