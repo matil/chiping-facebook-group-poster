@@ -180,6 +180,7 @@ export class JobStore {
     job.status = 'posted';
     job.post_url = postUrl || null;
     job.last_error = null;
+    delete job.failed_post_url;
     job.posted_at = new Date().toISOString();
     job.updated_at = job.posted_at;
     const entry = postedProductEntry(job, postUrl, job.posted_at);
@@ -200,11 +201,14 @@ export class JobStore {
     return structuredClone(job);
   }
 
-  async markBlocked(id, error) {
+  async markBlocked(id, error, details = {}) {
     const job = this.state.jobs[id];
     if (!job) return null;
     job.status = 'blocked';
     job.last_error = String(error || 'facebook_session_required').slice(0, 500);
+    const failedPostUrl = String(details.failedPostUrl || '').trim();
+    if (failedPostUrl) job.failed_post_url = failedPostUrl;
+    else delete job.failed_post_url;
     job.next_attempt_at = null;
     job.updated_at = new Date().toISOString();
     await this.persist();
@@ -220,6 +224,7 @@ export class JobStore {
       job.status = 'retry';
       job.next_attempt_at = now;
       job.last_error = null;
+      delete job.failed_post_url;
       job.updated_at = now;
       resumed += 1;
     }
@@ -243,6 +248,7 @@ export class JobStore {
       job.next_attempt_at = now;
       job.last_error = null;
       job.post_url = null;
+      delete job.failed_post_url;
       delete job.posted_at;
       job.updated_at = now;
       reset += 1;
@@ -263,6 +269,7 @@ export class JobStore {
       job.status = 'posted';
       job.post_url = normalizedPostUrl;
       job.last_error = null;
+      delete job.failed_post_url;
       job.next_attempt_at = null;
       job.posted_at = now;
       job.updated_at = now;
@@ -288,6 +295,7 @@ export class JobStore {
       job.status = 'posted';
       job.post_url = null;
       job.last_error = null;
+      delete job.failed_post_url;
       job.next_attempt_at = null;
       job.posted_at = now;
       job.updated_at = now;

@@ -313,9 +313,13 @@ async function recoverBlankFacebookPage(page, targetUrl) {
 }
 
 export class FacebookPostMediaRequiredError extends Error {
-  constructor(message = 'Facebook published the Chiping post without its product image link card') {
+  constructor(
+    message = 'Facebook published the Chiping post without its product image link card',
+    options = {}
+  ) {
     super(message);
     this.name = 'FacebookPostMediaRequiredError';
+    this.postUrl = String(options.postUrl || '').trim();
   }
 }
 
@@ -1069,7 +1073,11 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
   if (targetAnchorResult.postUrl) return targetAnchorResult;
   const titleResult = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
   if (titleResult.postUrl) return titleResult;
-  if (result.found || targetAnchorResult.found || titleResult.found) {
+  const messageResult = String(expectedMessage || '').trim()
+    ? await findFacebookGroupPostViaLinkCardTitle(page, expectedMessage)
+    : { found: false, postUrl: '' };
+  if (messageResult.postUrl) return messageResult;
+  if (result.found || targetAnchorResult.found || titleResult.found || messageResult.found) {
     return { found: true, postUrl: '' };
   }
   return findFacebookGroupPostViaMedia(page, itemUrl, {
@@ -1096,6 +1104,7 @@ export async function findFacebookGroupPost(config, itemUrl, options = {}) {
       groupUrl: config.groupUrl,
       itemUrl,
       expectedTitle,
+      expectedMessage: String(options.expectedMessage || '').trim(),
       timeoutMs: options.timeoutMs,
       currentPageOnly: options.currentPageOnly === true,
       mediaCandidateLimit: options.mediaCandidateLimit,
@@ -1746,7 +1755,7 @@ export async function verifyFacebookPostImageDestination(page, {
   return { verified: false, destinationUrl: '', observedUrls: [] };
 }
 
-export function buildFacebookPreviewShareUrl(itemUrl, imageUrl) {
+export function buildFacebookPreviewShareUrl(itemUrl, imageUrl, retryAttempt = 0) {
   try {
     const target = new URL(String(itemUrl || ''));
     const image = new URL(String(imageUrl || ''));
@@ -1756,7 +1765,9 @@ export function buildFacebookPreviewShareUrl(itemUrl, imageUrl) {
       && /^\d+$/.test(String(target.searchParams.get('item') || ''))
       && version
     ) {
-      target.searchParams.set('fb_preview', version.slice(0, 64));
+      const retry = Math.max(0, Math.min(Number(retryAttempt) || 0, 99));
+      const previewKey = retry ? `${version.slice(0, 55)}-r${retry}` : version.slice(0, 64);
+      target.searchParams.set('fb_preview', previewKey);
     }
     return target.href;
   } catch {
@@ -1963,12 +1974,15 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       });
       if (!destination.verified) {
         throw new FacebookPostMediaRequiredError(
-          'Facebook product image does not open the exact Chiping item'
+          'Facebook product image does not open the exact Chiping item',
+          { postUrl: existing.postUrl }
         );
       }
       return { published: true, postUrl: existing.postUrl || '' };
     }
-    if (existing.incomplete) throw new FacebookPostMediaRequiredError();
+    if (existing.incomplete) {
+      throw new FacebookPostMediaRequiredError(undefined, { postUrl: existing.postUrl });
+    }
 
     // Verification may leave the active tab on Facebook's group-search route.
     // Return to the group feed before looking for the composer.
@@ -2007,7 +2021,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
         page,
         textBox,
         String(job.payload.message),
-        buildFacebookPreviewShareUrl(job.payload.itemUrl, job.payload.imageUrl),
+        buildFacebookPreviewShareUrl(job.payload.itemUrl, job.payload.imageUrl, job.attempts),
         FACEBOOK_COMPOSER_LINK_PREVIEW_TIMEOUT_MS
       );
     } catch (error) {
@@ -2048,7 +2062,9 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     });
     await captureFacebookDebug(page, config, 'after-verification');
     if (!published.found) {
-      if (published.incomplete) throw new FacebookPostMediaRequiredError();
+      if (published.incomplete) {
+        throw new FacebookPostMediaRequiredError(undefined, { postUrl: published.postUrl });
+      }
       throw new Error('Facebook did not expose the published group post');
     }
     const destination = await verifyFacebookPostImageDestination(page, {
@@ -2058,7 +2074,8 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     });
     if (!destination.verified) {
       throw new FacebookPostMediaRequiredError(
-        'Facebook product image does not open the exact Chiping item'
+        'Facebook product image does not open the exact Chiping item',
+        { postUrl: published.postUrl }
       );
     }
     return { published: true, postUrl: published.postUrl || '' };

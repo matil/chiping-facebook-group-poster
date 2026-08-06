@@ -411,7 +411,9 @@ test('GitHub Action blocks instead of duplicating a published post with no produ
 
     const result = await runGitHubAction(env, {
       postJob: async () => {
-        throw new FacebookPostMediaRequiredError();
+        throw new FacebookPostMediaRequiredError(undefined, {
+          postUrl: 'https://www.facebook.com/groups/chiping/posts/9301/',
+        });
       },
     });
 
@@ -419,6 +421,56 @@ test('GitHub Action blocks instead of duplicating a published post with no produ
     assert.match(result.blockedReason, /without its product image link card/);
     assert.equal(result.summary.blocked, 1);
     assert.equal(result.summary.retry, 0);
+
+    const restoredDir = path.join(directory, 'restored-media-block');
+    await restoreEncryptedActionState({
+      encryptedFile: env.FACEBOOK_ACTION_STATE_FILE,
+      secret: stateKey,
+      dataDir: restoredDir,
+      storageStateFile: path.join(restoredDir, 'storage.json'),
+    });
+    const state = JSON.parse(await readFile(path.join(restoredDir, 'queue.json'), 'utf8'));
+    const blockedJob = Object.values(state.jobs).find((job) => job.status === 'blocked');
+    assert.equal(
+      blockedJob.failed_post_url,
+      'https://www.facebook.com/groups/chiping/posts/9301/'
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('one malformed media post does not freeze unrelated queued products', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const firstEnv = await actionEnvironment(directory, {
+      client_payload: { payload: payload({ posting_policy: 'amazon-deals-all' }) },
+    });
+    firstEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    const blocked = await runGitHubAction(firstEnv, {
+      postJob: async () => { throw new FacebookPostMediaRequiredError(); },
+    });
+    assert.equal(blocked.summary.blocked, 1);
+
+    const secondEnv = await actionEnvironment(directory, {
+      client_payload: { payload: payload({
+        idempotency_key: 'chiping-facebook:v1:9302',
+        productId: '9302',
+        itemUrl: 'https://www.chiping.co.il/?item=9302',
+        posting_policy: 'amazon-deals-all',
+      }) },
+    });
+    secondEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    const second = await runGitHubAction(secondEnv, {
+      nowMs: Date.now() + 10 * 60 * 1000,
+      postJob: async (job) => ({
+        postUrl: `https://www.facebook.com/groups/chiping/posts/${job.product_id}/`,
+      }),
+    });
+    assert.equal(second.outcome, 'posted');
+    assert.equal(second.postedProductId, '9302');
+    assert.equal(second.summary.blocked, 1);
+    assert.equal(second.summary.posted, 1);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

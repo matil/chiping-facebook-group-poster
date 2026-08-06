@@ -17,6 +17,7 @@ import {
   validChipingFacebookPayload,
 } from './payload.mjs';
 import { isFacebookQuietHours } from './quiet-hours.mjs';
+import { blocksFacebookQueue } from './block-policy.mjs';
 
 const CURATED_POST_INTERVAL_MS = 20 * 60 * 60 * 1000;
 const AMAZON_DEALS_POST_INTERVAL_MS = 5 * 60 * 1000;
@@ -244,7 +245,7 @@ export async function runGitHubAction(env = process.env, options = {}) {
         ? String(error.message || 'facebook_session_required').slice(0, 160)
         : 'facebook_access_check_failed';
     }
-  } else if (store.summary().blocked > 0) {
+  } else if (Object.values(store.state.jobs).some(blocksFacebookQueue)) {
     outcome = 'blocked';
   } else if (!enabled(env.FACEBOOK_ACTION_POSTING_ENABLED)) {
     if (summary.pending || summary.retry) outcome = 'dry_run';
@@ -273,7 +274,9 @@ export async function runGitHubAction(env = process.env, options = {}) {
           || error instanceof FacebookPostMediaRequiredError;
         const message = terminalError ? error.message : 'Facebook group post failed';
         if (terminalError || attempts >= config.maxAttempts) {
-          await store.markBlocked(job.id, message);
+          await store.markBlocked(job.id, message, {
+            failedPostUrl: error instanceof FacebookPostMediaRequiredError ? error.postUrl : '',
+          });
           outcome = 'blocked';
           alert = true;
         } else {

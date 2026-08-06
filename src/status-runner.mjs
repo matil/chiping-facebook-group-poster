@@ -6,13 +6,13 @@ import {
   saveEncryptedActionState,
 } from './action-state.mjs';
 import {
+  deleteFacebookGroupPost,
   FacebookSessionRequiredError,
+  findFacebookGroupPost,
   verifyFacebookGroupAccess,
 } from './facebook.mjs';
 import { JobStore } from './store.mjs';
-
-const SESSION_BLOCK_RE = /(?:facebook session|interactive login|security verification|security check|session expired|login credentials|posting profile|group posting is not available|composer could not be opened|post text box is not available)/i;
-const MEDIA_BLOCK_RE = /(?:product image|media|link card|clickable image|published[^.]*without)/i;
+import { isFacebookMediaBlock, isFacebookSessionBlock } from './block-policy.mjs';
 
 function blockedJobs(store) {
   return store.state.order
@@ -37,14 +37,13 @@ async function writeOutputs(values) {
 }
 
 export function isAutoRecoverableFacebookBlock(job = {}) {
-  const reason = String(job.last_error || '');
-  return Boolean(reason)
-    && !MEDIA_BLOCK_RE.test(reason)
-    && SESSION_BLOCK_RE.test(reason);
+  return isFacebookSessionBlock(job) || isFacebookMediaBlock(job);
 }
 
 export function inspectFacebookStatus(store) {
   const blocked = blockedJobs(store);
+  const sessionRecoverable = blocked.filter(isFacebookSessionBlock);
+  const mediaRecoverable = blocked.filter(isFacebookMediaBlock);
   const recoverable = blocked.filter(isAutoRecoverableFacebookBlock);
   const unresolved = blocked.filter((job) => !isAutoRecoverableFacebookBlock(job));
   return {
@@ -54,37 +53,91 @@ export function inspectFacebookStatus(store) {
     needsRepair: recoverable.length > 0,
     blockedIds: joinJobIds(blocked),
     recoverableIds: joinJobIds(recoverable),
+    sessionRecoverableIds: joinJobIds(sessionRecoverable),
+    mediaRecoverableIds: joinJobIds(mediaRecoverable),
     unresolvedIds: joinJobIds(unresolved),
     summary: store.summary(),
   };
 }
 
-export async function repairFacebookBlockedJobs(store, verifyAccess) {
+function validFacebookPostUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    if (!['facebook.com', 'www.facebook.com'].includes(url.hostname)) return false;
+    return /^\/groups\/(?:chiping|\d+)\/(?:posts|permalink)\/(?:\d+|pfbid[a-z0-9]+)\/?$/i.test(url.pathname)
+      || (/^\/photo(?:\.php)?\/?$/i.test(url.pathname)
+        && /^gm\.\d+$/i.test(String(url.searchParams.get('set') || '')));
+  } catch {
+    return false;
+  }
+}
+
+export async function repairFacebookMediaBlock(job, config, options = {}) {
+  let postUrl = String(job.failed_post_url || '').trim();
+  if (!validFacebookPostUrl(postUrl)) {
+    const result = await (options.findPost || findFacebookGroupPost)(
+      config,
+      String(job?.payload?.itemUrl || ''),
+      {
+        ...options,
+        expectedTitle: String(job?.payload?.title || '').trim(),
+        expectedMessage: String(job?.payload?.message || '').trim(),
+        currentPageOnly: false,
+        sortNewest: true,
+        mediaFallback: true,
+        requireLoadedLinkImage: false,
+      }
+    );
+    postUrl = String(result?.postUrl || '').trim();
+  }
+  if (!validFacebookPostUrl(postUrl)) return { repaired: false, postUrl: '' };
+  await (options.deletePost || deleteFacebookGroupPost)(postUrl, config, options);
+  return { repaired: true, postUrl };
+}
+
+export async function repairFacebookBlockedJobs(store, verifyAccess, options = {}) {
   const inspection = inspectFacebookStatus(store);
   if (!inspection.needsRepair) return inspection;
 
-  try {
-    await verifyAccess();
-  } catch (error) {
-    return {
-      ...inspection,
-      outcome: error instanceof FacebookSessionRequiredError
-        ? 'verification_required'
-        : 'repair_failed',
-      error: error instanceof FacebookSessionRequiredError
-        ? String(error.message || 'facebook_verification_required').slice(0, 160)
-        : 'facebook_access_check_failed',
-    };
+  const repairedIds = new Set();
+  const sessionJobs = blockedJobs(store).filter(isFacebookSessionBlock);
+  if (sessionJobs.length) {
+    try {
+      await verifyAccess();
+      sessionJobs.forEach((job) => repairedIds.add(job.id));
+    } catch (error) {
+      return {
+        ...inspection,
+        outcome: error instanceof FacebookSessionRequiredError
+          ? 'verification_required'
+          : 'repair_failed',
+        error: error instanceof FacebookSessionRequiredError
+          ? String(error.message || 'facebook_verification_required').slice(0, 160)
+          : 'facebook_access_check_failed',
+      };
+    }
   }
 
-  const recoverableIds = new Set(
-    blockedJobs(store).filter(isAutoRecoverableFacebookBlock).map((job) => job.id)
-  );
-  const resumed = await store.resumeBlocked((job) => recoverableIds.has(job.id));
+  for (const job of blockedJobs(store).filter(isFacebookMediaBlock)) {
+    try {
+      const result = await (options.repairMediaBlock || repairFacebookMediaBlock)(
+        job,
+        options.config,
+        options
+      );
+      if (result?.repaired === true) repairedIds.add(job.id);
+    } catch {
+      // Keep only this item quarantined; it must not hold unrelated posts.
+    }
+  }
+
+  const resumed = await store.resumeBlocked((job) => repairedIds.has(job.id));
   const repaired = inspectFacebookStatus(store);
   return {
     ...repaired,
-    outcome: repaired.unresolvedIds ? 'partially_repaired' : 'repaired',
+    outcome: repaired.blockedIds
+      ? (resumed ? 'partially_repaired' : 'repair_failed')
+      : 'repaired',
     resumed,
   };
 }
@@ -113,7 +166,8 @@ export async function runFacebookStatus(env = process.env, options = {}) {
   if (mode === 'repair') {
     result = await repairFacebookBlockedJobs(
       store,
-      () => (options.verifyGroupAccess || verifyFacebookGroupAccess)(config, options)
+      () => (options.verifyGroupAccess || verifyFacebookGroupAccess)(config, options),
+      { ...options, config }
     );
     // Verification can refresh cookies even when no queue row changes.
     stateChanged = true;
@@ -137,6 +191,7 @@ export async function runFacebookStatus(env = process.env, options = {}) {
     state_changed: stateChanged,
     blocked_product_ids: result.blockedIds,
     recoverable_product_ids: result.recoverableIds,
+    media_recoverable_product_ids: result.mediaRecoverableIds,
     unresolved_product_ids: result.unresolvedIds,
     resumed: Number(result.resumed) || 0,
     error: result.error || '',

@@ -43,6 +43,7 @@ import { validChipingFacebookPayload } from '../src/payload.mjs';
 import {
   inspectFacebookStatus,
   repairFacebookBlockedJobs,
+  repairFacebookMediaBlock,
   runFacebookStatus,
 } from '../src/status-runner.mjs';
 
@@ -1587,6 +1588,14 @@ test('Facebook composer stages a versioned URL while preserving the clean item t
     ),
     'https://www.chiping.co.il/?item=10432&fb_preview=411b61b15fcaab1e'
   );
+  assert.equal(
+    buildFacebookPreviewShareUrl(
+      'https://www.chiping.co.il/?item=10432',
+      'https://www.chiping.co.il/facebook-images/10432.jpg?v=411b61b15fcaab1e',
+      2
+    ),
+    'https://www.chiping.co.il/?item=10432&fb_preview=411b61b15fcaab1e-r2'
+  );
 });
 
 test('Facebook composer recognizes a CSS-backed link card around a contained product image', async () => {
@@ -2101,7 +2110,7 @@ test('Facebook security detection does not mistake product compatibility for ver
   assert.equal(isFacebookSecurityChallengeText('Complete the security check to continue.'), true);
 });
 
-test('Facebook status repair resumes only access-related blocks after verification', async () => {
+test('Facebook status repair verifies access and cleans malformed media posts', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-status-'));
   try {
     const store = new JobStore(directory);
@@ -2123,21 +2132,84 @@ test('Facebook status repair resumes only access-related blocks after verificati
 
     const inspection = inspectFacebookStatus(store);
     assert.equal(inspection.outcome, 'blocked_recoverable');
-    assert.equal(inspection.recoverableIds, '9301');
-    assert.equal(inspection.unresolvedIds, '9302');
+    assert.equal(inspection.recoverableIds, '9301,9302');
+    assert.equal(inspection.mediaRecoverableIds, '9302');
+    assert.equal(inspection.unresolvedIds, '');
 
     let verifications = 0;
+    let mediaRepairs = 0;
     const repaired = await repairFacebookBlockedJobs(store, async () => {
       verifications += 1;
+    }, {
+      repairMediaBlock: async (job) => {
+        mediaRepairs += 1;
+        assert.equal(job.product_id, '9302');
+        return { repaired: true, postUrl: 'https://www.facebook.com/groups/chiping/posts/9302/' };
+      },
     });
     assert.equal(verifications, 1);
-    assert.equal(repaired.outcome, 'partially_repaired');
-    assert.equal(repaired.resumed, 1);
+    assert.equal(mediaRepairs, 1);
+    assert.equal(repaired.outcome, 'repaired');
+    assert.equal(repaired.resumed, 2);
     assert.equal(store.state.jobs[sessionJob.job.id].status, 'retry');
+    assert.equal(store.state.jobs[mediaJob.job.id].status, 'retry');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('Facebook status repair quarantines a media post when exact cleanup fails', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-status-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    const mediaJob = await store.enqueue(payload());
+    await store.markBlocked(
+      mediaJob.job.id,
+      'Facebook product image does not open the exact Chiping item'
+    );
+
+    let accessChecks = 0;
+    const result = await repairFacebookBlockedJobs(store, async () => {
+      accessChecks += 1;
+    }, {
+      repairMediaBlock: async () => ({ repaired: false, postUrl: '' }),
+    });
+    assert.equal(accessChecks, 0);
+    assert.equal(result.outcome, 'repair_failed');
+    assert.equal(result.resumed, 0);
     assert.equal(store.state.jobs[mediaJob.job.id].status, 'blocked');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('Facebook media repair finds the exact item by its description before deleting', async () => {
+  const job = {
+    product_id: '10809',
+    payload: {
+      itemUrl: 'https://www.chiping.co.il/?item=10809',
+      title: 'נעלי סניקרס לגברים',
+      message: 'נעלי הסניקרס כוללות עיצוב שרוכים קלאסי להתאמה בטוחה.',
+    },
+  };
+  let findOptions = null;
+  let deletedUrl = '';
+  const result = await repairFacebookMediaBlock(job, {}, {
+    findPost: async (_config, itemUrl, options) => {
+      assert.equal(itemUrl, job.payload.itemUrl);
+      findOptions = options;
+      return { postUrl: 'https://www.facebook.com/groups/chiping/posts/10809/' };
+    },
+    deletePost: async (postUrl) => {
+      deletedUrl = postUrl;
+      return { deleted: true };
+    },
+  });
+  assert.equal(findOptions.expectedMessage, job.payload.message);
+  assert.equal(findOptions.requireLoadedLinkImage, false);
+  assert.equal(deletedUrl, 'https://www.facebook.com/groups/chiping/posts/10809/');
+  assert.equal(result.repaired, true);
 });
 
 test('Facebook status repair keeps the queue blocked when access verification fails', async () => {
