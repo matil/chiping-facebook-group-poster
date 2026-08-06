@@ -95,7 +95,17 @@ jobs:
           POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
           POSTER_HEADLESS: 'true'
           FACEBOOK_VERIFIER_DIAGNOSTICS: 'true'
+          FACEBOOK_DEBUG_DIR: ${{ runner.temp }}/facebook-status-debug
         run: node src/status-runner.mjs
+
+      - name: Upload Facebook repair diagnostics
+        if: always() && steps.inspect.outputs.needs_repair == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: facebook-status-debug-${{ github.run_id }}
+          path: ${{ runner.temp }}/facebook-status-debug
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Save repaired Facebook state
         if: always() && (steps.inspect.outputs.state_changed == 'true' || steps.repair.outputs.state_changed == 'true')

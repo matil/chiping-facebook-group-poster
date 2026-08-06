@@ -831,6 +831,8 @@ test('hourly Facebook status repair stays browser-free unless recovery is needed
   assert.match(workflow, /FACEBOOK_STATUS_MODE: repair/);
   assert.match(workflow, /if: steps\.inspect\.outputs\.needs_repair == 'true'/);
   assert.match(workflow, /Verify access and repair recoverable blocks/);
+  assert.match(workflow, /Upload Facebook repair diagnostics/);
+  assert.match(workflow, /FACEBOOK_DEBUG_DIR/);
   assert.doesNotMatch(workflow, /FACEBOOK_ACTION_POSTING_ENABLED/);
 
   const inspectIndex = workflow.indexOf('Inspect Facebook queue without a browser');

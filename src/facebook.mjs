@@ -2131,7 +2131,7 @@ export async function deleteFacebookGroupPostByMessage(job, config, options = {}
         const text = normalize(value);
         return tokens.length >= 3 && tokens.every((token) => text.includes(token));
       };
-      const menuLabel = /(?:actions for this post|more actions|^more$|\u05e4\u05e2\u05d5\u05dc\u05d5\u05ea \u05e2\u05d1\u05d5\u05e8 \u05e4\u05d5\u05e1\u05d8|\u05d0\u05e4\u05e9\u05e8\u05d5\u05d9\u05d5\u05ea)/i;
+      const menuLabel = /(?:actions for this post|\u05e4\u05e2\u05d5\u05dc\u05d5\u05ea \u05e2\u05d1\u05d5\u05e8 \u05e4\u05d5\u05e1\u05d8)/i;
       body.querySelectorAll('[data-chiping-malformed-post-scope], [data-chiping-malformed-post-menu]')
         .forEach((node) => {
           node.removeAttribute('data-chiping-malformed-post-scope');
