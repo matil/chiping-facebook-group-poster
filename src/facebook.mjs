@@ -1476,17 +1476,16 @@ export async function waitForFacebookLinkPreview(
     ]);
     const hasTargetAnchor = hrefs.some((href) => referencesExactChipingTarget(href, chipingTarget));
     const hostOccurrences = String(dialogText || '').toLowerCase().split(host).length - 1;
-    const hasExactTargetPreviewVisual = hasLoadedFacebookPreviewVisual(
-      visualMetrics,
-      chipingTarget
-    );
+    const hasLargePreviewVisual = hasLoadedFacebookPreviewVisual(visualMetrics);
     lastProbe = {
       hasTargetAnchor,
       hostOccurrences,
       hrefs: hrefs.slice(0, 20),
       visualMetrics: visualMetrics.slice(0, 30),
     };
-    if (hasExactTargetPreviewVisual) {
+    // Facebook keeps the external URL and the visual card in separate React
+    // controls. The card href is an internal fragment until publication.
+    if (hasLargePreviewVisual && hasTargetAnchor) {
       return { hasTargetAnchor, hostOccurrences, visualMetrics };
     }
     await page.waitForTimeout(500);
