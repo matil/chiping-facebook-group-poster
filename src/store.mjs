@@ -285,6 +285,18 @@ export class JobStore {
     return confirmed;
   }
 
+  async markSkipped(id, reason) {
+    const job = this.state.jobs[id];
+    if (!job) return null;
+    job.status = 'skipped';
+    job.last_error = String(reason || 'item_unavailable').slice(0, 500);
+    job.next_attempt_at = null;
+    delete job.failed_post_url;
+    job.updated_at = new Date().toISOString();
+    await this.persist();
+    return structuredClone(job);
+  }
+
   async finalizeProductPostedUnlinked(productId) {
     const normalizedProductId = String(productId || '').trim();
     if (!/^\d+$/.test(normalizedProductId)) return 0;
@@ -312,7 +324,7 @@ export class JobStore {
   }
 
   summary() {
-    const result = { pending: 0, retry: 0, processing: 0, blocked: 0, posted: 0 };
+    const result = { pending: 0, retry: 0, processing: 0, blocked: 0, posted: 0, skipped: 0 };
     for (const job of Object.values(this.state.jobs)) {
       if (job?.status in result) result[job.status] += 1;
     }

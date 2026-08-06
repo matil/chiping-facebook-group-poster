@@ -11,5 +11,5 @@ export function isFacebookSessionBlock(job = {}) {
 }
 
 export function blocksFacebookQueue(job = {}) {
-  return job?.status === 'blocked' && !isFacebookMediaBlock(job);
+  return job?.status === 'blocked' && isFacebookSessionBlock(job);
 }

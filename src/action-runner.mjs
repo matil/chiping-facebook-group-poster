@@ -3,6 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   FacebookPostMediaRequiredError,
+  FacebookPostUnavailableError,
   FacebookSessionRequiredError,
   deleteFacebookGroupPost,
   postFacebookGroupJob,
@@ -270,18 +271,23 @@ export async function runGitHubAction(env = process.env, options = {}) {
         outcome = postUrl ? 'posted' : 'posted_unlinked';
       } catch (error) {
         const attempts = job.attempts + 1;
-        const terminalError = error instanceof FacebookSessionRequiredError
-          || error instanceof FacebookPostMediaRequiredError;
-        const message = terminalError ? error.message : 'Facebook group post failed';
-        if (terminalError || attempts >= config.maxAttempts) {
-          await store.markBlocked(job.id, message, {
-            failedPostUrl: error instanceof FacebookPostMediaRequiredError ? error.postUrl : '',
-          });
-          outcome = 'blocked';
-          alert = true;
+        if (error instanceof FacebookPostUnavailableError) {
+          await store.markSkipped(job.id, error.message);
+          outcome = 'skipped_unavailable';
         } else {
-          await store.markRetry(job.id, message, nextRetryAt(job.attempts, nowMs));
-          outcome = 'retry';
+          const terminalError = error instanceof FacebookSessionRequiredError
+            || error instanceof FacebookPostMediaRequiredError;
+          const message = terminalError ? error.message : 'Facebook group post failed';
+          if (terminalError || attempts >= config.maxAttempts) {
+            await store.markBlocked(job.id, message, {
+              failedPostUrl: error instanceof FacebookPostMediaRequiredError ? error.postUrl : '',
+            });
+            outcome = 'blocked';
+            alert = true;
+          } else {
+            await store.markRetry(job.id, message, nextRetryAt(job.attempts, nowMs));
+            outcome = 'retry';
+          }
         }
       }
     }

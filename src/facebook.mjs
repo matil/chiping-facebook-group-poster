@@ -323,6 +323,13 @@ export class FacebookPostMediaRequiredError extends Error {
   }
 }
 
+export class FacebookPostUnavailableError extends Error {
+  constructor(message = 'Chiping item is no longer available for Facebook posting') {
+    super(message);
+    this.name = 'FacebookPostUnavailableError';
+  }
+}
+
 function normalizedFacebookText(value) {
   return String(value || '')
     .normalize('NFKC')
@@ -1206,8 +1213,9 @@ export async function validateChipingLinkPreviewMetadata(
       Pragma: 'no-cache',
       'User-Agent': 'facebookexternalhit/1.1 (+https://www.facebook.com/externalhit_uatext.php)',
     },
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(30000),
   });
+  if ([404, 410].includes(response.status)) throw new FacebookPostUnavailableError();
   if (!response.ok) {
     throw new Error(`Chiping link preview returned HTTP ${response.status}`);
   }
@@ -1257,6 +1265,7 @@ export async function waitForChipingLinkPreviewMetadata(
       return await validateChipingLinkPreviewMetadata(itemUrl, expectedImageUrl, fetchImpl);
     } catch (error) {
       lastError = error;
+      if (error instanceof FacebookPostUnavailableError) throw error;
       if (attempt < attempts) await sleep(delayMs);
     }
   }

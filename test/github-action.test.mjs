@@ -13,8 +13,10 @@ import {
 } from '../src/action-state.mjs';
 import {
   FacebookPostMediaRequiredError,
+  FacebookPostUnavailableError,
   FacebookSessionRequiredError,
 } from '../src/facebook.mjs';
+import { blocksFacebookQueue } from '../src/block-policy.mjs';
 
 const stateKey = 'github-action-state-key-that-is-longer-than-thirty-two-characters';
 
@@ -438,6 +440,40 @@ test('GitHub Action blocks instead of duplicating a published post with no produ
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('GitHub Action permanently skips a Chiping item that is no longer available', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, {
+      client_payload: { payload: payload({ posting_policy: 'amazon-deals-all' }) },
+    });
+    env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    const result = await runGitHubAction(env, {
+      postJob: async () => { throw new FacebookPostUnavailableError(); },
+    });
+    assert.equal(result.outcome, 'skipped_unavailable');
+    assert.equal(result.summary.skipped, 1);
+    assert.equal(result.summary.retry, 0);
+    assert.equal(result.summary.blocked, 0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('only Facebook access failures can freeze the whole queue', () => {
+  assert.equal(blocksFacebookQueue({
+    status: 'blocked',
+    last_error: 'Facebook session needs an interactive login or security verification',
+  }), true);
+  assert.equal(blocksFacebookQueue({
+    status: 'blocked',
+    last_error: 'Facebook group post failed',
+  }), false);
+  assert.equal(blocksFacebookQueue({
+    status: 'blocked',
+    last_error: 'Facebook product image does not open the exact Chiping item',
+  }), false);
 });
 
 test('one malformed media post does not freeze unrelated queued products', async () => {

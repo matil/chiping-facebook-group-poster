@@ -9,6 +9,7 @@ import { createServer } from '../src/server.mjs';
 import {
   attachFacebookComposerImage,
   buildFacebookPreviewShareUrl,
+  FacebookPostUnavailableError,
   FacebookSessionRequiredError,
   fillFacebookComposerText,
   findFacebookComposerTextBox,
@@ -1221,6 +1222,18 @@ test('Chiping link-preview metadata rejects a stale product image', async () => 
   );
 });
 
+test('Chiping link-preview metadata permanently rejects an unavailable item', async () => {
+  await assert.rejects(
+    waitForChipingLinkPreviewMetadata(
+      'https://www.chiping.co.il/?item=10807',
+      'https://www.chiping.co.il/facebook-images/10807.jpg?v=stale',
+      async () => new Response('', { status: 404 }),
+      { attempts: 4, delayMs: 1 }
+    ),
+    FacebookPostUnavailableError
+  );
+});
+
 test('Chiping link-preview metadata accepts a newer generated image version for the same item', async () => {
   const itemUrl = 'https://www.chiping.co.il/?item=10432';
   const currentImageUrl = 'https://www.chiping.co.il/facebook-images/10432.jpg?v=current';
@@ -2422,7 +2435,14 @@ test('job store is durable and idempotent', async () => {
 
     const reopened = new JobStore(directory);
     await reopened.init();
-    assert.deepEqual(reopened.summary(), { pending: 0, retry: 0, processing: 0, blocked: 0, posted: 1 });
+    assert.deepEqual(reopened.summary(), {
+      pending: 0,
+      retry: 0,
+      processing: 0,
+      blocked: 0,
+      posted: 1,
+      skipped: 0,
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -2542,6 +2562,7 @@ test('job store can reset one falsely completed product without touching others'
       processing: 0,
       blocked: 0,
       posted: 1,
+      skipped: 0,
     });
     const resetJob = store.state.jobs[first.job.id];
     assert.equal(resetJob.post_url, null);
