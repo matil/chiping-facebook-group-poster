@@ -1824,6 +1824,8 @@ export async function prepareFacebookComposerLinkPreview(
   const selectedUrl = await selectFacebookComposerText(textBox, itemUrl);
   if (!selectedUrl) throw new Error('Facebook composer preview URL could not be selected');
   await page.keyboard.press('Backspace');
+  await textBox.click({ timeout: 10000 });
+  await page.keyboard.press('Control+End');
   await page.keyboard.insertText(retainedItemUrl);
   await page.waitForTimeout(500);
   const visibleText = String(await textBox.innerText().catch(() => ''));
