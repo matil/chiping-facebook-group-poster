@@ -2311,7 +2311,7 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
         return {
           async evaluateAll() {
             return previewReady
-              ? ['https://www.facebook.com/groups/chiping#?preview-card']
+              ? [`https://l.facebook.com/l.php?u=${encodeURIComponent(itemUrl)}`]
               : [];
           },
         };
@@ -2367,8 +2367,75 @@ test('Facebook composer stages the item URL, keeps its card, and removes the vis
   assert.equal(value.trim(), cleanMessage);
   assert.equal(previewReady, true);
   assert.equal(result.visibleUrlRemoved, true);
-  assert.equal(result.hasTargetAnchor, false);
+  assert.equal(result.hasTargetAnchor, true);
   assert.equal(result.hostOccurrences, 1);
+});
+
+test('Facebook composer rejects an image-looking card detached from the exact item link', async () => {
+  const itemUrl = 'https://www.chiping.co.il/?item=9302&fb_preview=fresh-image';
+  let value = '';
+  let previewReady = false;
+  let selection = '';
+  const visualSelector = [
+    'a[href]',
+    '[role="link"]',
+    'img',
+    '[role="img"]',
+    '[data-visualcompletion="media-vc-image"]',
+    '[style*="background-image"]',
+  ].join(', ');
+  const dialog = {
+    async innerText() { return previewReady ? `${value}\nCHIPING.CO.IL` : value; },
+    locator(selector) {
+      if (selector === 'a[href]') {
+        return {
+          async evaluateAll() {
+            return value.includes(itemUrl)
+              ? [`https://l.facebook.com/l.php?u=${encodeURIComponent(itemUrl)}`]
+              : ['https://www.chiping.co.il/'];
+          },
+        };
+      }
+      if (selector === visualSelector) {
+        return {
+          async evaluateAll() {
+            return previewReady
+              ? [{ width: 500, height: 262, visible: true, tagName: 'A', role: 'link' }]
+              : [];
+          },
+        };
+      }
+      throw new Error(`Unexpected selector: ${selector}`);
+    },
+  };
+  const textBox = {
+    async click() {},
+    async fill(text) {
+      value = text;
+      if (text.includes(itemUrl)) previewReady = true;
+    },
+    async innerText() { return value; },
+    async evaluate(_callback, target) {
+      if (!value.includes(target)) return false;
+      selection = target;
+      return true;
+    },
+    locator() { return dialog; },
+  };
+  const page = {
+    async waitForTimeout() {},
+    keyboard: {
+      async press(key) {
+        if (key === 'Backspace' && selection) value = value.replace(selection, '');
+      },
+      async insertText(text) { value = text; },
+    },
+  };
+
+  await assert.rejects(
+    prepareFacebookComposerLinkPreview(page, textBox, 'תיאור מוצר מלא', itemUrl),
+    /detached the exact Chiping item link/
+  );
 });
 
 test('Facebook URL range selection fails closed when the staged URL is absent', async () => {

@@ -1808,6 +1808,9 @@ export async function prepareFacebookComposerLinkPreview(
     timeoutMs,
     textBox
   );
+  if (!stagedPreview.hasTargetAnchor) {
+    throw new Error('Facebook preview is not linked to the exact Chiping item');
+  }
 
   const selectedUrl = await selectFacebookComposerText(textBox, itemUrl);
   if (!selectedUrl) throw new Error('Facebook composer URL could not be selected for removal');
@@ -1825,6 +1828,9 @@ export async function prepareFacebookComposerLinkPreview(
     Math.min(Math.max(5000, Number(timeoutMs) || 30000), 10000),
     textBox
   );
+  if (!retainedPreview.hasTargetAnchor) {
+    throw new Error('Facebook detached the exact Chiping item link after URL removal');
+  }
   return {
     ...retainedPreview,
     stagedPreview,
