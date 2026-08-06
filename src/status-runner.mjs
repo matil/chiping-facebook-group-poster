@@ -90,7 +90,10 @@ export async function repairFacebookMediaBlock(job, config, options = {}) {
     );
     postUrl = String(result?.postUrl || '').trim();
   }
-  if (!validFacebookPostUrl(postUrl)) return { repaired: false, postUrl: '' };
+  if (!validFacebookPostUrl(postUrl)) {
+    console.warn(`[facebook-status] exact malformed post permalink was not found for ${jobIdentifier(job)}`);
+    return { repaired: false, postUrl: '' };
+  }
   await (options.deletePost || deleteFacebookGroupPost)(postUrl, config, options);
   return { repaired: true, postUrl };
 }
@@ -126,7 +129,10 @@ export async function repairFacebookBlockedJobs(store, verifyAccess, options = {
         options
       );
       if (result?.repaired === true) repairedIds.add(job.id);
-    } catch {
+    } catch (error) {
+      console.warn(
+        `[facebook-status] media repair failed for ${jobIdentifier(job)}: ${String(error?.message || 'unknown').slice(0, 160)}`
+      );
       // Keep only this item quarantined; it must not hold unrelated posts.
     }
   }

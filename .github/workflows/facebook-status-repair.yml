@@ -94,6 +94,7 @@ jobs:
           FACEBOOK_STORAGE_STATE_FILE: ${{ runner.temp }}/chiping-facebook-data/facebook-storage-state.json
           POSTER_DATA_DIR: ${{ runner.temp }}/chiping-facebook-data
           POSTER_HEADLESS: 'true'
+          FACEBOOK_VERIFIER_DIAGNOSTICS: 'true'
         run: node src/status-runner.mjs
 
       - name: Save repaired Facebook state

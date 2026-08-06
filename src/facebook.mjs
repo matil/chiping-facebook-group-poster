@@ -1073,9 +1073,16 @@ export async function findFacebookGroupPostWithMediaFallback(page, {
   if (targetAnchorResult.postUrl) return targetAnchorResult;
   const titleResult = await findFacebookGroupPostViaLinkCardTitle(page, expectedTitle);
   if (titleResult.postUrl) return titleResult;
-  const messageResult = String(expectedMessage || '').trim()
-    ? await findFacebookGroupPostViaLinkCardTitle(page, expectedMessage)
+  const normalizedExpectedMessage = String(expectedMessage || '').trim();
+  let messageResult = normalizedExpectedMessage
+    ? await findFacebookGroupPostViaLinkCardTitle(page, normalizedExpectedMessage)
     : { found: false, postUrl: '' };
+  if (normalizedExpectedMessage && !messageResult.postUrl && !currentPageOnly) {
+    const messageSearchUrl = `${groupUrl}/search/?q=${encodeURIComponent(normalizedExpectedMessage)}`;
+    page = await navigateFacebookForVerification(page, messageSearchUrl);
+    await page.waitForTimeout(2000);
+    messageResult = await findFacebookGroupPostViaLinkCardTitle(page, normalizedExpectedMessage);
+  }
   if (messageResult.postUrl) return messageResult;
   if (result.found || targetAnchorResult.found || titleResult.found || messageResult.found) {
     return { found: true, postUrl: '' };
