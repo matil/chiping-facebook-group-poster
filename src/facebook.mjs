@@ -2162,13 +2162,37 @@ export async function deleteFacebookGroupPostByMessage(job, config, options = {}
     }
     await captureFacebookDebug(page, config, 'before-exact-message-delete-menu');
     await menuButton.click({ timeout: 10000 });
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(5000);
+    const visibleMenuLabels = await page.locator([
+      '[role="menuitem"]',
+      '[role="menu"] [role="button"]',
+      '[role="dialog"] [role="button"]',
+    ].join(', ')).evaluateAll((controls) => controls
+      .filter((control) => {
+        const rect = control.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      })
+      .map((control) => String(control.textContent || control.getAttribute('aria-label') || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 80))
+      .filter(Boolean)
+      .slice(0, 30)).catch(() => []);
+    console.log(`[facebook-status] exact-post menu labels: ${JSON.stringify(visibleMenuLabels)}`);
     const deleteItem = await firstVisibleLocator(page, [
       '[role="menuitem"]:has-text("Delete post")',
+      '[role="menuitem"]:has-text("Remove post")',
       '[role="menuitem"]:has-text("Move to Trash")',
+      '[role="menuitem"]:has-text("Move to trash")',
+      '[role="menuitem"]:has-text("Move to bin")',
       '[role="menuitem"]:has-text("\u05de\u05d7\u05d9\u05e7\u05ea \u05d4\u05e4\u05d5\u05e1\u05d8")',
+      '[role="menuitem"]:has-text("\u05d4\u05e1\u05e8\u05ea \u05d4\u05e4\u05d5\u05e1\u05d8")',
       '[role="menuitem"]:has-text("\u05d4\u05e2\u05d1\u05e8\u05d4 \u05dc\u05d0\u05e9\u05e4\u05d4")',
       '[role="menuitem"]:has-text("\u05de\u05d7\u05d9\u05e7\u05d4")',
+      '[role="menu"] [role="button"]:has-text("Delete post")',
+      '[role="menu"] [role="button"]:has-text("Remove post")',
+      '[role="menu"] [role="button"]:has-text("Move to Trash")',
+      '[role="menu"] [role="button"]:has-text("Move to bin")',
     ]);
     if (!deleteItem) throw new Error('Facebook exact malformed post delete action was not found');
     await deleteItem.click({ timeout: 10000 });
