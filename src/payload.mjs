@@ -16,6 +16,23 @@ function validHebrewText(value, { required = false } = {}) {
     && !CORRUPTED_TEXT_RE.test(text);
 }
 
+function validHebrewTitle(value) {
+  const text = String(value || '').trim();
+  return validHebrewText(text, { required: true }) && /^[\u0590-\u05ff]/u.test(text);
+}
+
+function validPreparedProductImage(value, productId) {
+  try {
+    const url = new URL(String(value || ''));
+    return url.protocol === 'https:'
+      && url.hostname === 'www.chiping.co.il'
+      && url.pathname === `/facebook-images/${productId}.jpg`
+      && /^[a-f0-9]{8,64}$/i.test(String(url.searchParams.get('v') || ''));
+  } catch {
+    return false;
+  }
+}
+
 function validCommonFields(payload) {
   return payload?.site === 'chiping'
     && payload?.channel === 'facebook'
@@ -30,14 +47,20 @@ function validCommonFields(payload) {
 
 function validProductPayload(payload, key, postingPolicy) {
   if (!/^chiping-facebook:v1:\d+$/.test(key)) return false;
-  if (!/^\d+$/.test(String(payload?.productId || ''))) return false;
+  const productId = String(payload?.productId || '');
+  if (!/^\d+$/.test(productId)) return false;
   if (postingPolicy && !['curated', AMAZON_DEALS_POSTING_POLICY].includes(postingPolicy)) return false;
+  if (!validHebrewTitle(payload?.title)) return false;
+  if (!validHebrewText(payload?.description, { required: true })) return false;
+  if (!validPreparedProductImage(payload?.imageUrl, productId)) return false;
+  if (String(payload?.price?.currency || '').trim().toUpperCase() !== 'ILS') return false;
+  if (!(Number(payload?.price?.current) > 0)) return false;
   try {
     const url = new URL(payload.itemUrl);
     return url.protocol === 'https:'
       && url.hostname === 'www.chiping.co.il'
       && url.pathname === '/'
-      && url.searchParams.get('item') === String(payload.productId);
+      && url.searchParams.get('item') === productId;
   } catch {
     return false;
   }

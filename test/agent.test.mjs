@@ -28,6 +28,8 @@ import {
   selectFacebookComposerText,
   sortFacebookGroupFeedNewest,
   validateChipingLinkPreviewMetadata,
+  validateFacebookJobReadiness,
+  validateFacebookPreparedImageAsset,
   verifyFacebookPostImageDestination,
   waitForChipingLinkPreviewMetadata,
   waitForFacebookComposerToClose,
@@ -60,15 +62,19 @@ test('Facebook publisher allows slow link-card images up to 90 seconds', async (
 const secret = 'facebook-group-poster-test-secret-with-at-least-32-characters';
 
 function payload(overrides = {}) {
+  const productId = String(overrides.productId || '9301');
   return {
-    idempotency_key: 'chiping-facebook:v1:9301',
-    productId: '9301',
+    idempotency_key: `chiping-facebook:v1:${productId}`,
+    productId,
     site: 'chiping',
     channel: 'facebook',
     language: 'he',
     message: '\u05d3\u05d9\u05dc \u05d1\u05d3\u05d9\u05e7\u05d4',
-    imageUrl: 'https://cdn.example.test/deal.jpg',
-    itemUrl: 'https://www.chiping.co.il/?item=9301',
+    title: '\u05de\u05db\u05d5\u05e0\u05ea \u05e7\u05e4\u05d4 \u05d0\u05d5\u05d8\u05d5\u05de\u05d8\u05d9\u05ea',
+    description: '\u05de\u05db\u05d9\u05e0\u05d4 \u05e7\u05e4\u05d4 \u05d8\u05e8\u05d9 \u05d1\u05dc\u05d7\u05d9\u05e6\u05ea \u05db\u05e4\u05ea\u05d5\u05e8',
+    imageUrl: `https://www.chiping.co.il/facebook-images/${productId}.jpg?v=12345678abcdef00`,
+    itemUrl: `https://www.chiping.co.il/?item=${productId}`,
+    price: { currency: 'ILS', current: 499, original: 799 },
     ...overrides,
   };
 }
@@ -201,6 +207,21 @@ test('Facebook payload validation rejects corrupted Hebrew before posting', () =
     title: '\u05e0\u05e2\u05dc\u05d9 \u05e8\u05d9\u05e6\u05d4 Under Armour',
     description: '\u05e8\u05d9\u05e4\u05d5\u05d3 \u05e0\u05d5\u05d7 \u05dc\u05e8\u05d9\u05e6\u05d4',
   })), true);
+});
+
+test('Facebook product payload requires every text, price, and prepared image component', () => {
+  assert.equal(validChipingFacebookPayload(payload()), true);
+  assert.equal(validChipingFacebookPayload(payload({ title: '' })), false);
+  assert.equal(validChipingFacebookPayload(payload({ title: 'Under Armour \u05e0\u05e2\u05dc\u05d9\u05d9\u05dd' })), false);
+  assert.equal(validChipingFacebookPayload(payload({ description: '' })), false);
+  assert.equal(validChipingFacebookPayload(payload({
+    imageUrl: 'https://cdn.example.test/source-product.jpg',
+  })), false);
+  assert.equal(validChipingFacebookPayload(payload({
+    imageUrl: 'https://www.chiping.co.il/facebook-images/9302.jpg?v=12345678abcdef00',
+  })), false);
+  assert.equal(validChipingFacebookPayload(payload({ price: { currency: 'ILS', current: 0 } })), false);
+  assert.equal(validChipingFacebookPayload(payload({ price: { currency: 'USD', current: 499 } })), false);
 });
 
 test('Facebook post verification matches the exact coupon-popup link', async () => {
@@ -1186,6 +1207,7 @@ test('Chiping link-preview metadata must expose the exact prepared 1200x630 imag
     assert.match(options.headers['User-Agent'], /facebookexternalhit/);
     return new Response(`<!doctype html><html><head>
       <meta property="og:url" content="${itemUrl}">
+      <meta property="og:title" content="\u05dc\u05e4\u05e8\u05d8\u05d9 \u05d4\u05d3\u05d9\u05dc">
       <meta property="og:image" content="${imageUrl}">
       <meta property="og:image:width" content="1200">
       <meta property="og:image:height" content="630">
@@ -1196,6 +1218,7 @@ test('Chiping link-preview metadata must expose the exact prepared 1200x630 imag
     await validateChipingLinkPreviewMetadata(itemUrl, imageUrl, fetchImpl),
     {
       canonicalUrl: itemUrl,
+      linkTitle: '\u05dc\u05e4\u05e8\u05d8\u05d9 \u05d4\u05d3\u05d9\u05dc',
       imageUrl,
       imageWidth: 1200,
       imageHeight: 630,
@@ -1207,6 +1230,7 @@ test('Chiping link-preview metadata rejects a stale product image', async () => 
   const itemUrl = 'https://www.chiping.co.il/?item=9301';
   const fetchImpl = async () => new Response(`<!doctype html><html><head>
     <meta property="og:url" content="${itemUrl}">
+    <meta property="og:title" content="\u05dc\u05e4\u05e8\u05d8\u05d9 \u05d4\u05d3\u05d9\u05dc">
     <meta property="og:image" content="https://cdn.example.test/old-product.jpg">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
@@ -1239,6 +1263,7 @@ test('Chiping link-preview metadata accepts a newer generated image version for 
   const currentImageUrl = 'https://www.chiping.co.il/facebook-images/10432.jpg?v=current';
   const fetchImpl = async () => new Response(`<!doctype html><html><head>
     <meta property="og:url" content="${itemUrl}">
+    <meta property="og:title" content="\u05dc\u05e4\u05e8\u05d8\u05d9 \u05d4\u05d3\u05d9\u05dc">
     <meta property="og:image" content="${currentImageUrl}">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
@@ -1257,6 +1282,7 @@ test('Chiping link-preview metadata rejects a generated image belonging to anoth
   const itemUrl = 'https://www.chiping.co.il/?item=10432';
   const fetchImpl = async () => new Response(`<!doctype html><html><head>
     <meta property="og:url" content="${itemUrl}">
+    <meta property="og:title" content="\u05dc\u05e4\u05e8\u05d8\u05d9 \u05d4\u05d3\u05d9\u05dc">
     <meta property="og:image" content="https://www.chiping.co.il/facebook-images/10431.jpg?v=current">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
@@ -1286,6 +1312,7 @@ test('Chiping link-preview metadata retries a transient stale crawler response',
       : imageUrl;
     return new Response(`<!doctype html><html><head>
       <meta property="og:url" content="${itemUrl}">
+      <meta property="og:title" content="\u05dc\u05e4\u05e8\u05d8\u05d9 \u05d4\u05d3\u05d9\u05dc">
       <meta property="og:image" content="${currentImage}">
       <meta property="og:image:width" content="1200">
       <meta property="og:image:height" content="630">
@@ -1300,6 +1327,39 @@ test('Chiping link-preview metadata retries a transient stale crawler response',
 
   assert.equal(calls, 3);
   assert.equal(result.imageUrl, imageUrl);
+});
+
+test('Facebook readiness requires a meaningful link title and a real prepared image asset', async () => {
+  const job = { payload: payload(), attempts: 0 };
+  const shareUrl = 'https://www.chiping.co.il/items/9301';
+  const imageUrl = payload().imageUrl;
+  const imageBytes = Buffer.alloc(12 * 1024, 1);
+  imageBytes[0] = 0xff;
+  imageBytes[1] = 0xd8;
+  const fetchImpl = async (url) => {
+    if (url === shareUrl) {
+      return new Response(`<!doctype html><html><head>
+        <meta property="og:url" content="${shareUrl}">
+        <meta property="og:title" content="\u05dc\u05e4\u05e8\u05d8\u05d9 \u05d4\u05d3\u05d9\u05dc">
+        <meta property="og:image" content="${imageUrl}">
+        <meta property="og:image:width" content="1200">
+        <meta property="og:image:height" content="630">
+      </head></html>`);
+    }
+    assert.equal(String(url), imageUrl);
+    return new Response(imageBytes, { headers: { 'Content-Type': 'image/jpeg' } });
+  };
+
+  const result = await validateFacebookJobReadiness(job, { fetchImpl, attempts: 1 });
+  assert.equal(result.shareUrl, shareUrl);
+  assert.equal(result.image.bytes, imageBytes.length);
+  await assert.rejects(
+    validateFacebookPreparedImageAsset(imageUrl, async () => new Response(
+      Buffer.from([0xff, 0xd8, 1]),
+      { headers: { 'Content-Type': 'image/jpeg' } }
+    )),
+    /unexpectedly small/
+  );
 });
 
 test('Facebook composer requires a rendered Chiping link card before publishing', async () => {
@@ -1735,7 +1795,7 @@ test('Facebook publisher uses a clickable link preview instead of uploading a ph
     source.indexOf('export async function postFacebookGroupJob'),
     source.length
   );
-  assert.match(publisher, /waitForChipingLinkPreviewMetadata/);
+  assert.match(publisher, /validateFacebookJobReadiness/);
   assert.match(publisher, /prepareFacebookComposerLinkPreview/);
   assert.match(source, /buildFacebookPreviewShareUrl\(payload\.itemUrl, payload\.imageUrl\)/);
   assert.match(publisher, /const expectedTitle = String\(job\.payload\.title \|\| ''\)\.trim\(\) \|\| await fetchChipingLinkPreviewTitle/);
@@ -2128,6 +2188,27 @@ test('Facebook composer text falls back to keyboard input and verifies retention
   assert.equal(value, 'Verified deal text');
 });
 
+test('Facebook composer refuses to publish when any description text is missing', async () => {
+  const expected = '\u05ea\u05d9\u05d0\u05d5\u05e8 \u05de\u05dc\u05d0 \u05e9\u05e6\u05e8\u05d9\u05da \u05dc\u05d4\u05d9\u05e9\u05d0\u05e8 \u05d1\u05e4\u05d5\u05e1\u05d8';
+  let value = '';
+  const textBox = {
+    async click() {},
+    async fill(text) { value = text.slice(0, 12); },
+    async innerText() { return value; },
+  };
+  const page = {
+    async waitForTimeout() {},
+    keyboard: {
+      async press() {},
+      async insertText(text) { value = text.slice(0, 12); },
+    },
+  };
+  await assert.rejects(
+    fillFacebookComposerText(page, textBox, expected),
+    /did not retain the post text/
+  );
+});
+
 test('Facebook security detection does not mistake product compatibility for verification', () => {
   assert.equal(
     isFacebookSecurityChallengeText('בזכות התאימות ל-MagSafe תוכלו להטעין בקלות.'),
@@ -2206,6 +2287,44 @@ test('Facebook status repair quarantines a media post when exact cleanup fails',
     assert.equal(result.outcome, 'repair_failed');
     assert.equal(result.resumed, 0);
     assert.equal(store.state.jobs[mediaJob.job.id].status, 'blocked');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('hourly Facebook status repair resumes the same item only after preparation is complete', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-status-'));
+  try {
+    const store = new JobStore(directory);
+    await store.init();
+    const queued = await store.enqueue(payload());
+    await store.markBlocked(
+      queued.job.id,
+      'Facebook preparation incomplete: Prepared Facebook image is unexpectedly small'
+    );
+
+    const inspection = inspectFacebookStatus(store);
+    assert.equal(inspection.preparationRecoverableIds, '9301');
+    assert.equal(inspection.needsRepair, true);
+    assert.equal(inspection.needsBrowserRepair, false);
+
+    const stillBlocked = await repairFacebookBlockedJobs(store, async () => {}, {
+      validateReadiness: async () => {
+        throw new Error('image still unavailable');
+      },
+    });
+    assert.equal(stillBlocked.outcome, 'repair_failed');
+    assert.equal(store.state.jobs[queued.job.id].status, 'blocked');
+
+    const repaired = await repairFacebookBlockedJobs(store, async () => {}, {
+      validateReadiness: async (job) => {
+        assert.equal(job.product_id, '9301');
+        return { ready: true };
+      },
+    });
+    assert.equal(repaired.outcome, 'repaired');
+    assert.equal(repaired.resumed, 1);
+    assert.equal(store.state.jobs[queued.job.id].status, 'retry');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

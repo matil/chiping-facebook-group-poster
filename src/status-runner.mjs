@@ -10,10 +10,15 @@ import {
   deleteFacebookGroupPostByMessage,
   FacebookSessionRequiredError,
   findFacebookGroupPost,
+  validateFacebookJobReadiness,
   verifyFacebookGroupAccess,
 } from './facebook.mjs';
 import { JobStore } from './store.mjs';
-import { isFacebookMediaBlock, isFacebookSessionBlock } from './block-policy.mjs';
+import {
+  isFacebookMediaBlock,
+  isFacebookPreparationBlock,
+  isFacebookSessionBlock,
+} from './block-policy.mjs';
 
 function blockedJobs(store) {
   return store.state.order
@@ -38,13 +43,16 @@ async function writeOutputs(values) {
 }
 
 export function isAutoRecoverableFacebookBlock(job = {}) {
-  return isFacebookSessionBlock(job) || isFacebookMediaBlock(job);
+  return isFacebookSessionBlock(job)
+    || isFacebookMediaBlock(job)
+    || isFacebookPreparationBlock(job);
 }
 
 export function inspectFacebookStatus(store) {
   const blocked = blockedJobs(store);
   const sessionRecoverable = blocked.filter(isFacebookSessionBlock);
   const mediaRecoverable = blocked.filter(isFacebookMediaBlock);
+  const preparationRecoverable = blocked.filter(isFacebookPreparationBlock);
   const recoverable = blocked.filter(isAutoRecoverableFacebookBlock);
   const unresolved = blocked.filter((job) => !isAutoRecoverableFacebookBlock(job));
   return {
@@ -52,10 +60,12 @@ export function inspectFacebookStatus(store) {
       ? 'blocked_recoverable'
       : (unresolved.length ? 'blocked_unresolved' : 'healthy'),
     needsRepair: recoverable.length > 0,
+    needsBrowserRepair: sessionRecoverable.length > 0 || mediaRecoverable.length > 0,
     blockedIds: joinJobIds(blocked),
     recoverableIds: joinJobIds(recoverable),
     sessionRecoverableIds: joinJobIds(sessionRecoverable),
     mediaRecoverableIds: joinJobIds(mediaRecoverable),
+    preparationRecoverableIds: joinJobIds(preparationRecoverable),
     unresolvedIds: joinJobIds(unresolved),
     summary: store.summary(),
   };
@@ -109,6 +119,20 @@ export async function repairFacebookBlockedJobs(store, verifyAccess, options = {
   if (!inspection.needsRepair) return inspection;
 
   const repairedIds = new Set();
+  for (const job of blockedJobs(store).filter(isFacebookPreparationBlock)) {
+    try {
+      await (options.validateReadiness || validateFacebookJobReadiness)(job, {
+        ...options,
+        attempts: 2,
+        delayMs: 1000,
+      });
+      repairedIds.add(job.id);
+    } catch (error) {
+      console.warn(
+        `[facebook-status] preparation still incomplete for ${jobIdentifier(job)}: ${String(error?.message || 'unknown').slice(0, 160)}`
+      );
+    }
+  }
   const sessionJobs = blockedJobs(store).filter(isFacebookSessionBlock);
   if (sessionJobs.length) {
     try {
@@ -200,10 +224,12 @@ export async function runFacebookStatus(env = process.env, options = {}) {
   const outputs = {
     outcome: result.outcome,
     needs_repair: result.needsRepair,
+    needs_browser_repair: result.needsBrowserRepair,
     state_changed: stateChanged,
     blocked_product_ids: result.blockedIds,
     recoverable_product_ids: result.recoverableIds,
     media_recoverable_product_ids: result.mediaRecoverableIds,
+    preparation_recoverable_product_ids: result.preparationRecoverableIds,
     unresolved_product_ids: result.unresolvedIds,
     resumed: Number(result.resumed) || 0,
     error: result.error || '',

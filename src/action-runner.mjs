@@ -3,6 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   FacebookPostMediaRequiredError,
+  FacebookPostPreparationRequiredError,
   FacebookPostUnavailableError,
   FacebookSessionRequiredError,
   deleteFacebookGroupPost,
@@ -276,7 +277,8 @@ export async function runGitHubAction(env = process.env, options = {}) {
           outcome = 'skipped_unavailable';
         } else {
           const terminalError = error instanceof FacebookSessionRequiredError
-            || error instanceof FacebookPostMediaRequiredError;
+            || error instanceof FacebookPostMediaRequiredError
+            || error instanceof FacebookPostPreparationRequiredError;
           const message = terminalError ? error.message : 'Facebook group post failed';
           if (terminalError || attempts >= config.maxAttempts) {
             await store.markBlocked(job.id, message, {

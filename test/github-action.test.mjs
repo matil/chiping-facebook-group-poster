@@ -21,15 +21,19 @@ import { blocksFacebookQueue } from '../src/block-policy.mjs';
 const stateKey = 'github-action-state-key-that-is-longer-than-thirty-two-characters';
 
 function payload(overrides = {}) {
+  const productId = String(overrides.productId || '9301');
   return {
-    idempotency_key: 'chiping-facebook:v1:9301',
-    productId: '9301',
+    idempotency_key: `chiping-facebook:v1:${productId}`,
+    productId,
     site: 'chiping',
     channel: 'facebook',
     language: 'he',
     message: '\u05d3\u05d9\u05dc \u05d1\u05d3\u05d9\u05e7\u05d4',
-    imageUrl: 'https://cdn.example.test/deal.jpg',
-    itemUrl: 'https://www.chiping.co.il/?item=9301',
+    title: '\u05de\u05db\u05d5\u05e0\u05ea \u05e7\u05e4\u05d4 \u05d0\u05d5\u05d8\u05d5\u05de\u05d8\u05d9\u05ea',
+    description: '\u05de\u05db\u05d9\u05e0\u05d4 \u05e7\u05e4\u05d4 \u05d8\u05e8\u05d9 \u05d1\u05dc\u05d7\u05d9\u05e6\u05ea \u05db\u05e4\u05ea\u05d5\u05e8',
+    imageUrl: `https://www.chiping.co.il/facebook-images/${productId}.jpg?v=12345678abcdef00`,
+    itemUrl: `https://www.chiping.co.il/?item=${productId}`,
+    price: { currency: 'ILS', current: 499, original: 799 },
     ...overrides,
   };
 }
@@ -608,7 +612,7 @@ test('a duplicate fast product event refreshes its image and retries immediately
     const firstNow = Date.now() + 1000;
     const oldPayload = payload({
       posting_policy: 'amazon-deals-all',
-      imageUrl: 'https://cdn.example.test/old.jpg',
+      imageUrl: 'https://www.chiping.co.il/facebook-images/9301.jpg?v=11111111aaaaaaaa',
     });
     const firstEnv = await actionEnvironment(directory, { client_payload: { payload: oldPayload } });
     firstEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
@@ -620,7 +624,7 @@ test('a duplicate fast product event refreshes its image and retries immediately
 
     const newPayload = {
       ...oldPayload,
-      imageUrl: 'https://www.chiping.co.il/facebook-images/9301.jpg?v=new',
+      imageUrl: 'https://www.chiping.co.il/facebook-images/9301.jpg?v=22222222bbbbbbbb',
     };
     const secondEnv = await actionEnvironment(directory, { client_payload: { payload: newPayload } });
     secondEnv.FACEBOOK_ACTION_POSTING_ENABLED = 'true';

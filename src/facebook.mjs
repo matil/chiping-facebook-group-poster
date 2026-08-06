@@ -323,6 +323,15 @@ export class FacebookPostMediaRequiredError extends Error {
   }
 }
 
+export class FacebookPostPreparationRequiredError extends Error {
+  constructor(message = 'Facebook post preparation is incomplete') {
+    const detail = String(message || 'Facebook post preparation is incomplete')
+      .replace(/^Facebook preparation incomplete:\s*/i, '');
+    super(`Facebook preparation incomplete: ${detail}`);
+    this.name = 'FacebookPostPreparationRequiredError';
+  }
+}
+
 export class FacebookPostUnavailableError extends Error {
   constructor(message = 'Chiping item is no longer available for Facebook posting') {
     super(message);
@@ -1181,6 +1190,22 @@ async function downloadImage(imageUrl, fetchImpl = fetch) {
   return { bytes, mimeType, filename: `chiping-deal.${extension}` };
 }
 
+export async function validateFacebookPreparedImageAsset(imageUrl, fetchImpl = fetch) {
+  const image = await downloadImage(imageUrl, fetchImpl);
+  if (image.bytes.length < 10 * 1024) {
+    throw new Error('Prepared Facebook image is unexpectedly small');
+  }
+  const jpeg = image.mimeType === 'image/jpeg' || image.mimeType === 'image/jpg';
+  const png = image.mimeType === 'image/png';
+  if (jpeg && !(image.bytes[0] === 0xff && image.bytes[1] === 0xd8)) {
+    throw new Error('Prepared Facebook JPEG is invalid');
+  }
+  if (png && !image.bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    throw new Error('Prepared Facebook PNG is invalid');
+  }
+  return { bytes: image.bytes.length, mimeType: image.mimeType };
+}
+
 function readHtmlMetaContent(html, key) {
   const normalizedKey = String(key || '').trim().toLowerCase();
   const tags = String(html || '').match(/<meta\b[^>]*>/gi) || [];
@@ -1233,15 +1258,22 @@ export async function validateChipingLinkPreviewMetadata(
   }
   const html = await response.text();
   const canonicalUrl = readHtmlMetaContent(html, 'og:url');
+  const linkTitle = readHtmlMetaContent(html, 'og:title');
   const imageUrl = readHtmlMetaContent(html, 'og:image');
   const imageWidth = Number(readHtmlMetaContent(html, 'og:image:width'));
   const imageHeight = Number(readHtmlMetaContent(html, 'og:image:height'));
   if (new URL(canonicalUrl).href !== new URL(String(itemUrl || '')).href) {
     throw new Error('Chiping link preview has the wrong destination URL');
   }
+  const previewTarget = chipingFacebookTarget(itemUrl);
+  if (!linkTitle || /^\s*(?:www\.)?chiping\.co\.il\s*$/i.test(linkTitle)) {
+    throw new Error('Chiping link preview has no meaningful link title');
+  }
+  if (previewTarget?.type === 'item' && linkTitle !== '\u05dc\u05e4\u05e8\u05d8\u05d9 \u05d4\u05d3\u05d9\u05dc') {
+    throw new Error('Chiping item link preview has the wrong link title');
+  }
   const actualImage = new URL(imageUrl);
   const expectedImage = new URL(String(expectedImageUrl || ''));
-  const previewTarget = chipingFacebookTarget(itemUrl);
   const itemId = previewTarget?.type === 'item' ? previewTarget.value : '';
   const currentPreparedImage = /^\d+$/.test(itemId)
     && actualImage.protocol === 'https:'
@@ -1258,7 +1290,29 @@ export async function validateChipingLinkPreviewMetadata(
   if (imageWidth !== 1200 || imageHeight !== 630) {
     throw new Error('Chiping link preview image must be 1200x630');
   }
-  return { canonicalUrl, imageUrl, imageWidth, imageHeight };
+  return { canonicalUrl, linkTitle, imageUrl, imageWidth, imageHeight };
+}
+
+export async function validateFacebookJobReadiness(job, options = {}) {
+  validatePayload(job?.payload);
+  const fetchImpl = options.fetchImpl || fetch;
+  const shareUrl = buildFacebookPreviewShareUrl(
+    job.payload.itemUrl,
+    job.payload.imageUrl,
+    job.attempts
+  );
+  const metadata = await waitForChipingLinkPreviewMetadata(
+    shareUrl,
+    job.payload.imageUrl,
+    fetchImpl,
+    {
+      attempts: options.attempts || 2,
+      delayMs: options.delayMs || 1000,
+      sleep: options.sleep,
+    }
+  );
+  const image = await validateFacebookPreparedImageAsset(metadata.imageUrl, fetchImpl);
+  return { shareUrl, metadata, image };
 }
 
 export async function waitForChipingLinkPreviewMetadata(
@@ -1356,9 +1410,7 @@ export async function fillFacebookComposerText(page, textBox, message) {
       .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
-    return normalizedActual.includes(
-      normalizedExpected.slice(0, Math.min(12, normalizedExpected.length))
-    );
+    return normalizedExpected.length > 0 && normalizedActual.includes(normalizedExpected);
   };
   await textBox.click({ timeout: 10000 });
   await textBox.fill(expected).catch(() => {});
@@ -1986,13 +2038,22 @@ export async function previewFacebookGroupLinkJob(payload, config, options = {})
 }
 
 export async function postFacebookGroupJob(job, config, options = {}) {
-  validatePayload(job.payload);
+  let readiness;
+  try {
+    readiness = await validateFacebookJobReadiness(job, options);
+  } catch (error) {
+    if (error instanceof FacebookPostUnavailableError) throw error;
+    throw new FacebookPostPreparationRequiredError(
+      String(error?.message || 'Facebook post readiness verification failed').slice(0, 500)
+    );
+  }
   const playwright = options.playwright || await import('playwright');
   const chromium = playwright.chromium;
   const fetchImpl = options.fetchImpl || fetch;
   const session = await createFacebookContext(chromium, config);
   const { context } = session;
   let page = null;
+  let submitted = false;
   try {
     page = context.pages()[0] || await context.newPage();
     await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
@@ -2054,20 +2115,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       job.payload.imageUrl,
       job.attempts
     );
-    let previewMetadata;
-    try {
-      previewMetadata = await waitForChipingLinkPreviewMetadata(
-        shareUrl,
-        job.payload.imageUrl,
-        fetchImpl
-      );
-    } catch (error) {
-      await captureFacebookDebug(page, config, 'link-metadata-verification-failed', {
-        error: String(error?.message || 'Chiping link preview metadata verification failed').slice(0, 500),
-        metadataProbe: error?.previewMetadata || null,
-      });
-      throw error;
-    }
+    const previewMetadata = readiness.metadata;
     await captureFacebookDebug(page, config, 'link-metadata-verified', previewMetadata);
     let linkPreview;
     try {
@@ -2099,6 +2147,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       enabled: await postButton.isEnabled().catch(() => false),
     });
     await postButton.click();
+    submitted = true;
     await page.waitForTimeout(2000);
     await captureFacebookDebug(page, config, 'posting');
     await waitForFacebookComposerToClose(page, textBox);
@@ -2140,6 +2189,17 @@ export async function postFacebookGroupJob(job, config, options = {}) {
         error: String(error?.message || 'Facebook group post failed').slice(0, 500),
         previewProbe: error?.previewProbe || null,
       });
+    }
+    if (
+      !submitted
+      && !(error instanceof FacebookSessionRequiredError)
+      && !(error instanceof FacebookPostUnavailableError)
+      && !(error instanceof FacebookPostMediaRequiredError)
+      && !(error instanceof FacebookPostPreparationRequiredError)
+    ) {
+      throw new FacebookPostPreparationRequiredError(
+        String(error?.message || 'Facebook post preparation failed').slice(0, 500)
+      );
     }
     throw error;
   } finally {

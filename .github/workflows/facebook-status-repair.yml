@@ -39,13 +39,13 @@ jobs:
         run: node src/status-runner.mjs
 
       - uses: actions/setup-node@v4
-        if: steps.inspect.outputs.needs_repair == 'true'
+        if: steps.inspect.outputs.needs_browser_repair == 'true'
         with:
           node-version: 20
           cache: npm
 
       - name: Restore Chromium
-        if: steps.inspect.outputs.needs_repair == 'true'
+        if: steps.inspect.outputs.needs_browser_repair == 'true'
         id: browser-cache
         uses: actions/cache/restore@v4
         with:
@@ -53,22 +53,22 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies for repair
-        if: steps.inspect.outputs.needs_repair == 'true'
+        if: steps.inspect.outputs.needs_browser_repair == 'true'
         run: npm ci
 
       - name: Install Chromium for repair
-        if: steps.inspect.outputs.needs_repair == 'true' && steps.browser-cache.outputs.cache-hit != 'true'
+        if: steps.inspect.outputs.needs_browser_repair == 'true' && steps.browser-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
 
       - name: Save Chromium
-        if: steps.inspect.outputs.needs_repair == 'true' && steps.browser-cache.outputs.cache-hit != 'true'
+        if: steps.inspect.outputs.needs_browser_repair == 'true' && steps.browser-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Prepare ephemeral Facebook credentials
-        if: steps.inspect.outputs.needs_repair == 'true'
+        if: steps.inspect.outputs.needs_browser_repair == 'true'
         shell: bash
         env:
           FACEBOOK_LOGIN_EMAIL: ${{ secrets.FACEBOOK_LOGIN_EMAIL }}
