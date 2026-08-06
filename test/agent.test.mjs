@@ -2212,6 +2212,31 @@ test('Facebook media repair finds the exact item by its description before delet
   assert.equal(result.repaired, true);
 });
 
+test('Facebook media repair deletes by exact queued description when no permalink exists', async () => {
+  const job = {
+    product_id: '10809',
+    payload: {
+      itemUrl: 'https://www.chiping.co.il/?item=10809',
+      title: 'נעלי סניקרס לגברים',
+      message: 'נעלי הסניקרס כוללות עיצוב שרוכים קלאסי להתאמה בטוחה.',
+    },
+  };
+  let deletedJob = null;
+  const result = await repairFacebookMediaBlock(job, {}, {
+    findPost: async () => ({ found: true, postUrl: '' }),
+    deletePost: async () => {
+      throw new Error('URL deletion must not run without a permalink');
+    },
+    deletePostByMessage: async (candidate) => {
+      deletedJob = candidate;
+      return { deleted: true, postUrl: '' };
+    },
+  });
+  assert.equal(deletedJob, job);
+  assert.equal(result.repaired, true);
+  assert.equal(result.postUrl, '');
+});
+
 test('Facebook status repair keeps the queue blocked when access verification fails', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-status-'));
   try {

@@ -2102,6 +2102,102 @@ export async function postFacebookGroupJob(job, config, options = {}) {
   }
 }
 
+export async function deleteFacebookGroupPostByMessage(job, config, options = {}) {
+  const expectedMessage = String(job?.payload?.message || '').trim();
+  if (normalizedFacebookText(expectedMessage).length < 20) {
+    throw new Error('Facebook exact-message deletion requires the full queued description');
+  }
+  const playwright = options.playwright || await import('playwright');
+  const session = await createFacebookContext(playwright.chromium, config);
+  const { context } = session;
+  let page = null;
+  try {
+    page = context.pages()[0] || await context.newPage();
+    const searchUrl = `${config.groupUrl}/search/?q=${encodeURIComponent(expectedMessage)}`;
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await loginIfNeeded(page, config);
+    await selectPostingProfile(page, config);
+    await page.waitForTimeout(2500);
+
+    const marked = await page.locator('body').evaluate((body, message) => {
+      const normalize = (value) => String(value || '')
+        .normalize('NFKC')
+        .replace(/[\u034f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLocaleLowerCase('he');
+      const tokens = [...new Set(normalize(message).match(/[\p{L}\p{N}%]+/gu) || [])];
+      const matchesMessage = (value) => {
+        const text = normalize(value);
+        return tokens.length >= 3 && tokens.every((token) => text.includes(token));
+      };
+      const menuLabel = /(?:actions for this post|more actions|^more$|\u05e4\u05e2\u05d5\u05dc\u05d5\u05ea \u05e2\u05d1\u05d5\u05e8 \u05e4\u05d5\u05e1\u05d8|\u05d0\u05e4\u05e9\u05e8\u05d5\u05d9\u05d5\u05ea)/i;
+      body.querySelectorAll('[data-chiping-malformed-post-scope], [data-chiping-malformed-post-menu]')
+        .forEach((node) => {
+          node.removeAttribute('data-chiping-malformed-post-scope');
+          node.removeAttribute('data-chiping-malformed-post-menu');
+        });
+      const candidates = [...body.querySelectorAll('a, span, div')]
+        .filter((node) => matchesMessage(node.textContent))
+        .filter((node) => ![...node.children].some((child) => matchesMessage(child.textContent)));
+      for (const candidate of candidates) {
+        let scope = candidate;
+        for (let depth = 0; scope && depth < 24; depth += 1, scope = scope.parentElement) {
+          if (!normalize(scope.textContent).includes('chiping.co.il')) continue;
+          const menu = [...scope.querySelectorAll('button, [role="button"]')]
+            .find((control) => menuLabel.test(normalize(control.getAttribute('aria-label'))));
+          if (!menu) continue;
+          scope.setAttribute('data-chiping-malformed-post-scope', 'true');
+          menu.setAttribute('data-chiping-malformed-post-menu', 'true');
+          return true;
+        }
+      }
+      return false;
+    }, expectedMessage).catch(() => false);
+    if (!marked) throw new Error('Facebook exact malformed post container was not found');
+
+    const menuButton = page.locator('[data-chiping-malformed-post-menu="true"]').first();
+    if (!await menuButton.isVisible().catch(() => false)) {
+      throw new Error('Facebook exact malformed post actions menu was not visible');
+    }
+    await captureFacebookDebug(page, config, 'before-exact-message-delete-menu');
+    await menuButton.click({ timeout: 10000 });
+    await page.waitForTimeout(1000);
+    const deleteItem = await firstVisibleLocator(page, [
+      '[role="menuitem"]:has-text("Delete post")',
+      '[role="menuitem"]:has-text("Move to Trash")',
+      '[role="menuitem"]:has-text("\u05de\u05d7\u05d9\u05e7\u05ea \u05d4\u05e4\u05d5\u05e1\u05d8")',
+      '[role="menuitem"]:has-text("\u05d4\u05e2\u05d1\u05e8\u05d4 \u05dc\u05d0\u05e9\u05e4\u05d4")',
+      '[role="menuitem"]:has-text("\u05de\u05d7\u05d9\u05e7\u05d4")',
+    ]);
+    if (!deleteItem) throw new Error('Facebook exact malformed post delete action was not found');
+    await deleteItem.click({ timeout: 10000 });
+    const confirmButton = await firstVisibleLocator(page, [
+      '[role="dialog"] [role="button"]:has-text("Delete")',
+      '[role="dialog"] [role="button"]:has-text("Move")',
+      '[role="dialog"] [role="button"]:has-text("\u05de\u05d7\u05d9\u05e7\u05d4")',
+      '[role="dialog"] [role="button"]:has-text("\u05d4\u05e2\u05d1\u05e8\u05d4")',
+    ]);
+    if (!confirmButton) throw new Error('Facebook exact malformed post delete confirmation was not found');
+    await captureFacebookDebug(page, config, 'before-exact-message-delete');
+    await confirmButton.click({ timeout: 10000 });
+    await page.waitForTimeout(2500);
+    await captureFacebookDebug(page, config, 'after-exact-message-delete');
+    return { deleted: true, postUrl: '' };
+  } catch (error) {
+    if (page) {
+      await captureFacebookDebug(page, config, 'exact-message-delete-failed', {
+        error: String(error?.message || error || 'Facebook exact-message delete failed').slice(0, 500),
+      });
+    }
+    throw error;
+  } finally {
+    if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
+    await context.close();
+    if (session.browser) await session.browser.close();
+  }
+}
+
 export async function deleteFacebookGroupPost(postUrl, config, options = {}) {
   const targetUrl = new URL(String(postUrl || '').trim());
   if (!['facebook.com', 'www.facebook.com'].includes(targetUrl.hostname)) {

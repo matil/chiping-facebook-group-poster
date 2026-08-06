@@ -7,6 +7,7 @@ import {
 } from './action-state.mjs';
 import {
   deleteFacebookGroupPost,
+  deleteFacebookGroupPostByMessage,
   FacebookSessionRequiredError,
   findFacebookGroupPost,
   verifyFacebookGroupAccess,
@@ -91,8 +92,13 @@ export async function repairFacebookMediaBlock(job, config, options = {}) {
     postUrl = String(result?.postUrl || '').trim();
   }
   if (!validFacebookPostUrl(postUrl)) {
-    console.warn(`[facebook-status] exact malformed post permalink was not found for ${jobIdentifier(job)}`);
-    return { repaired: false, postUrl: '' };
+    console.warn(`[facebook-status] permalink unavailable; using exact-message cleanup for ${jobIdentifier(job)}`);
+    const result = await (options.deletePostByMessage || deleteFacebookGroupPostByMessage)(
+      job,
+      config,
+      options
+    );
+    return { repaired: result?.deleted === true, postUrl: '' };
   }
   await (options.deletePost || deleteFacebookGroupPost)(postUrl, config, options);
   return { repaired: true, postUrl };
