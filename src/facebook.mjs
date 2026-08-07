@@ -1141,6 +1141,8 @@ export async function findFacebookGroupPost(config, itemUrl, options = {}) {
   const playwright = options.playwright || await import('playwright');
   const expectedTitle = String(options.expectedTitle || '').trim()
     || await fetchChipingLinkPreviewTitle(itemUrl, options.fetchImpl || fetch).catch(() => '');
+  const expectedMessage = String(options.expectedMessage || '').trim();
+  const verifyImageDestination = options.verifyImageDestination === true;
   const session = await createFacebookContext(playwright.chromium, config);
   const { context } = session;
   try {
@@ -1156,18 +1158,21 @@ export async function findFacebookGroupPost(config, itemUrl, options = {}) {
       groupUrl: config.groupUrl,
       itemUrl,
       expectedTitle,
-      expectedMessage: String(options.expectedMessage || '').trim(),
+      expectedMessage,
       timeoutMs: options.timeoutMs,
       currentPageOnly: options.currentPageOnly === true,
       mediaCandidateLimit: options.mediaCandidateLimit,
-      requireLoadedLinkImage: options.requireLoadedLinkImage === true,
+      // Search modals often wrap valid cards in an internal Facebook URL. When
+      // requested, the real click destination below is the stronger check.
+      requireLoadedLinkImage: options.requireLoadedLinkImage === true && !verifyImageDestination,
     });
     if (options.screenshotPath) {
       await page.screenshot({ path: options.screenshotPath, fullPage: true }).catch(() => {});
     }
-    if (result.found && options.verifyImageDestination === true) {
+    if (result.found && verifyImageDestination) {
       const destination = await verifyFacebookPostImageDestination(page, {
         expectedTitle,
+        expectedMessage,
         itemUrl,
       });
       if (options.screenshotPath) {

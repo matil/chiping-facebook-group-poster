@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { postIntervalMsForJob, runGitHubAction } from '../src/action-runner.mjs';
 import { previewFacebookLink } from '../src/preview-link.mjs';
+import { verifyFacebookPost } from '../src/verify-post.mjs';
 import { isFacebookQuietHours } from '../src/quiet-hours.mjs';
 import {
   markVerifiedPostingProfile,
@@ -878,6 +879,51 @@ test('GitHub Action can render a link-card preview without posting', async () =>
     assert.equal(received.payload.title, payload().title);
     assert.equal(received.payload.price.current, 499);
     assert.equal(received.options.screenshotPath, env.FACEBOOK_PREVIEW_SCREENSHOT_PATH);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('independent Facebook verification uses the exact queued title and description', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-verify-'));
+  try {
+    const seedDir = path.join(directory, 'seed');
+    const dataDir = path.join(directory, 'data');
+    const encryptedFile = path.join(directory, 'state', 'facebook-agent.enc');
+    const seedStorage = path.join(seedDir, 'storage.json');
+    await mkdir(seedDir, { recursive: true });
+    const seedStore = new JobStore(seedDir);
+    await seedStore.init();
+    await seedStore.enqueue(payload());
+    await writeFile(seedStorage, JSON.stringify({ cookies: [], origins: [] }));
+    await saveEncryptedActionState({
+      encryptedFile,
+      secret: stateKey,
+      dataDir: seedDir,
+      storageStateFile: seedStorage,
+    });
+
+    let receivedOptions = null;
+    const result = await verifyFacebookPost({
+      POSTER_DATA_DIR: dataDir,
+      FACEBOOK_STORAGE_STATE_FILE: path.join(dataDir, 'storage.json'),
+      FACEBOOK_ACTION_STATE_FILE: encryptedFile,
+      FACEBOOK_STATE_ENCRYPTION_KEY: stateKey,
+      FACEBOOK_VERIFY_PRODUCT_ID: '9301',
+      FACEBOOK_VERIFY_REQUIRE_IMAGE: 'true',
+    }, {
+      findPost: async (config, itemUrl, options) => {
+        receivedOptions = options;
+        assert.equal(itemUrl, 'https://www.chiping.co.il/?item=9301');
+        return { found: true, postUrl: 'https://www.facebook.com/groups/chiping/posts/9301/' };
+      },
+    });
+
+    assert.equal(result.found, true);
+    assert.equal(receivedOptions.expectedTitle, payload().title);
+    assert.equal(receivedOptions.expectedMessage, payload().message);
+    assert.equal(receivedOptions.requireLoadedLinkImage, true);
+    assert.equal(receivedOptions.verifyImageDestination, true);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

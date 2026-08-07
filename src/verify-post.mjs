@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { restoreEncryptedActionState } from './action-state.mjs';
 import { loadConfig } from './config.mjs';
 import { findFacebookGroupPost } from './facebook.mjs';
+import { JobStore } from './store.mjs';
 
 async function writeOutputs(values) {
   if (!process.env.GITHUB_OUTPUT) return;
@@ -29,6 +30,12 @@ export async function verifyFacebookPost(env = process.env, options = {}) {
     dataDir: config.dataDir,
     storageStateFile: config.storageStateFile,
   });
+  const store = new JobStore(config.dataDir);
+  await store.init();
+  const queuedJob = Object.values(store.state.jobs)
+    .find((job) => String(job?.product_id || '') === productId);
+  const queuedTitle = String(queuedJob?.payload?.title || '').trim();
+  const queuedMessage = String(queuedJob?.payload?.message || '').trim();
   const result = await (options.findPost || findFacebookGroupPost)(
     config,
     `https://www.chiping.co.il/?item=${productId}`,
@@ -43,7 +50,10 @@ export async function verifyFacebookPost(env = process.env, options = {}) {
       verifyImageDestination: /^(?:1|true|yes|on)$/i.test(
         String(env.FACEBOOK_VERIFY_REQUIRE_IMAGE || '')
       ),
-      expectedTitle: String(env.FACEBOOK_VERIFY_EXPECTED_TITLE || '').trim() || undefined,
+      expectedTitle: String(env.FACEBOOK_VERIFY_EXPECTED_TITLE || '').trim()
+        || queuedTitle
+        || undefined,
+      expectedMessage: queuedMessage || undefined,
       screenshotPath: String(env.FACEBOOK_VERIFY_SCREENSHOT_PATH || '').trim() || undefined,
     }
   );
