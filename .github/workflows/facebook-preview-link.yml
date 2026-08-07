@@ -11,10 +11,6 @@ on:
         description: Exact prepared Open Graph image URL
         required: true
         type: string
-      message_base64:
-        description: Base64-encoded Facebook post message
-        required: true
-        type: string
 
 permissions:
   actions: read
@@ -63,7 +59,6 @@ jobs:
         env:
           FACEBOOK_PREVIEW_PRODUCT_ID: ${{ inputs.product_id }}
           FACEBOOK_PREVIEW_IMAGE_URL: ${{ inputs.image_url }}
-          FACEBOOK_PREVIEW_MESSAGE_BASE64: ${{ inputs.message_base64 }}
           FACEBOOK_ACTION_STATE_FILE: ${{ github.workspace }}/.facebook-state/facebook-agent.enc
           FACEBOOK_STATE_ENCRYPTION_KEY: ${{ secrets.FACEBOOK_STATE_ENCRYPTION_KEY }}
           FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}

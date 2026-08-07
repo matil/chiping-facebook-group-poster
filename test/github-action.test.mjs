@@ -17,6 +17,7 @@ import {
   FacebookSessionRequiredError,
 } from '../src/facebook.mjs';
 import { blocksFacebookQueue } from '../src/block-policy.mjs';
+import { JobStore } from '../src/store.mjs';
 
 const stateKey = 'github-action-state-key-that-is-longer-than-thirty-two-characters';
 
@@ -815,7 +816,9 @@ test('GitHub Action can render a link-card preview without posting', async () =>
     const encryptedFile = path.join(directory, 'state', 'facebook-agent.enc');
     const seedStorage = path.join(seedDir, 'storage.json');
     await mkdir(seedDir, { recursive: true });
-    await writeFile(path.join(seedDir, 'queue.json'), '{}');
+    const seedStore = new JobStore(seedDir);
+    await seedStore.init();
+    await seedStore.enqueue(payload());
     await writeFile(seedStorage, JSON.stringify({ cookies: [], origins: [] }));
     await saveEncryptedActionState({
       encryptedFile,
@@ -825,7 +828,7 @@ test('GitHub Action can render a link-card preview without posting', async () =>
     });
 
     const itemUrl = 'https://www.chiping.co.il/?item=9301';
-    const message = `\u05d3\u05d9\u05dc \u05d1\u05d3\u05d9\u05e7\u05d4\n${itemUrl}`;
+    const message = `${payload().message}\n\n${itemUrl}`;
     const env = {
       POSTER_DATA_DIR: dataDir,
       FACEBOOK_STORAGE_STATE_FILE: path.join(dataDir, 'storage.json'),
@@ -833,7 +836,6 @@ test('GitHub Action can render a link-card preview without posting', async () =>
       FACEBOOK_STATE_ENCRYPTION_KEY: stateKey,
       FACEBOOK_PREVIEW_PRODUCT_ID: '9301',
       FACEBOOK_PREVIEW_IMAGE_URL: 'https://cdn.example.test/facebook-link-9301.jpg',
-      FACEBOOK_PREVIEW_MESSAGE_BASE64: Buffer.from(message).toString('base64'),
       FACEBOOK_PREVIEW_SCREENSHOT_PATH: path.join(directory, 'preview.png'),
       POSTER_HEADLESS: 'true',
     };
@@ -848,6 +850,8 @@ test('GitHub Action can render a link-card preview without posting', async () =>
     assert.equal(result.ready, true);
     assert.equal(received.payload.itemUrl, itemUrl);
     assert.equal(received.payload.message, message);
+    assert.equal(received.payload.title, payload().title);
+    assert.equal(received.payload.price.current, 499);
     assert.equal(received.options.screenshotPath, env.FACEBOOK_PREVIEW_SCREENSHOT_PATH);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -915,7 +919,7 @@ test('remote login workflow uses protected VNC and encrypts the resulting sessio
     'utf8'
   );
   assert.match(linkPreviewWorkflow, /node src\/preview-link\.mjs/);
-  assert.match(linkPreviewWorkflow, /FACEBOOK_PREVIEW_MESSAGE_BASE64:/);
+  assert.doesNotMatch(linkPreviewWorkflow, /FACEBOOK_PREVIEW_MESSAGE_BASE64:/);
   assert.match(linkPreviewWorkflow, /Render link card without posting/);
   assert.match(linkPreviewWorkflow, /facebook-link-preview-\$\{\{ github\.run_id \}\}/);
   assert.doesNotMatch(linkPreviewWorkflow, /FACEBOOK_ACTION_POSTING_ENABLED/);

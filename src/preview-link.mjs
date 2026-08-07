@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { restoreEncryptedActionState } from './action-state.mjs';
 import { loadConfig } from './config.mjs';
 import { previewFacebookGroupLinkJob } from './facebook.mjs';
+import { JobStore } from './store.mjs';
 
 async function writeOutputs(values) {
   if (!process.env.GITHUB_OUTPUT) return;
@@ -16,12 +17,8 @@ export async function previewFacebookLink(env = process.env, options = {}) {
   const productId = String(env.FACEBOOK_PREVIEW_PRODUCT_ID || '').trim();
   if (!/^\d+$/.test(productId)) throw new Error('FACEBOOK_PREVIEW_PRODUCT_ID must be numeric');
   const imageUrl = String(env.FACEBOOK_PREVIEW_IMAGE_URL || '').trim();
-  const message = Buffer.from(
-    String(env.FACEBOOK_PREVIEW_MESSAGE_BASE64 || '').trim(),
-    'base64'
-  ).toString('utf8').trim();
   const itemUrl = `https://www.chiping.co.il/?item=${productId}`;
-  if (!imageUrl.startsWith('https://') || !message || !message.includes(itemUrl)) {
+  if (!imageUrl.startsWith('https://')) {
     throw new Error('Facebook preview payload is incomplete');
   }
 
@@ -39,12 +36,19 @@ export async function previewFacebookLink(env = process.env, options = {}) {
     storageStateFile: config.storageStateFile,
   });
 
+  const store = new JobStore(config.dataDir);
+  await store.init();
+  const queuedJob = Object.values(store.state.jobs)
+    .find((job) => String(job?.product_id || '') === productId);
+  if (!queuedJob?.payload) {
+    throw new Error('Facebook preview product is not present in the durable queue');
+  }
+  const queuedMessage = String(queuedJob.payload.message || '').trim();
+  if (!queuedMessage) throw new Error('Facebook preview product has no queued description');
+  const message = `${queuedMessage}\n\n${itemUrl}`;
+
   const result = await (options.previewJob || previewFacebookGroupLinkJob)({
-    idempotency_key: `chiping-facebook:v1:${productId}`,
-    productId,
-    site: 'chiping',
-    channel: 'facebook',
-    language: 'he',
+    ...queuedJob.payload,
     message,
     imageUrl,
     itemUrl,
