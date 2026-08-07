@@ -1546,7 +1546,11 @@ export async function waitForFacebookLinkPreview(
     ]);
     const hasTargetAnchor = hrefs.some((href) => referencesExactChipingTarget(href, chipingTarget));
     const hostOccurrences = String(dialogText || '').toLowerCase().split(host).length - 1;
-    const hasLargePreviewVisual = hasLoadedFacebookPreviewVisual(visualMetrics, chipingTarget);
+    const hasLargePreviewVisual = hasLoadedFacebookPreviewVisual(
+      visualMetrics,
+      chipingTarget,
+      { allowFacebookComposerWrapper: hasTargetAnchor }
+    );
     lastProbe = {
       hasTargetAnchor,
       hostOccurrences,
@@ -1603,14 +1607,35 @@ export async function waitForFacebookLinkPreview(
   throw error;
 }
 
-export function hasLoadedFacebookPreviewVisual(visualMetrics = [], requiredTarget = null) {
+function isFacebookComposerWrapperTarget(value) {
+  try {
+    const url = new URL(String(value || ''), 'https://www.facebook.com');
+    return /(^|\.)facebook\.com$/i.test(url.hostname)
+      && /^\/groups\/chiping\/?$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+export function hasLoadedFacebookPreviewVisual(
+  visualMetrics = [],
+  requiredTarget = null,
+  { allowFacebookComposerWrapper = false } = {}
+) {
   return (Array.isArray(visualMetrics) ? visualMetrics : []).some((metric) => (
     metric?.visible === true
     && Number(metric.width) >= 180
     && Number(metric.height) >= 120
     && metric.imageLoaded !== false
-    && (!requiredTarget || (Array.isArray(metric.clickTargets) ? metric.clickTargets : [])
-      .some((value) => referencesExactChipingTarget(value, requiredTarget)))
+    && (!requiredTarget || (() => {
+      const clickTargets = Array.isArray(metric.clickTargets) ? metric.clickTargets : [];
+      if (clickTargets.some((value) => referencesExactChipingTarget(value, requiredTarget))) {
+        return true;
+      }
+      return allowFacebookComposerWrapper
+        && clickTargets.length > 0
+        && clickTargets.every(isFacebookComposerWrapperTarget);
+    })())
   ));
 }
 

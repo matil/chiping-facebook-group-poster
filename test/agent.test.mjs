@@ -2558,6 +2558,55 @@ test('Facebook composer rejects an image card that links only to the homepage', 
     clickTargets: ['https://www.facebook.com/groups/chiping/#composer'],
   }];
   assert.equal(hasLoadedFacebookPreviewVisual(splitCard, itemTarget), false);
+  assert.equal(hasLoadedFacebookPreviewVisual(splitCard, itemTarget, {
+    allowFacebookComposerWrapper: true,
+  }), true);
+});
+
+test('Facebook composer accepts its internal image wrapper only beside the exact item anchor', async () => {
+  const itemUrl = 'https://www.chiping.co.il/items/9302';
+  const visualSelector = [
+    'a[href]',
+    '[role="link"]',
+    'img',
+    '[role="img"]',
+    '[data-visualcompletion="media-vc-image"]',
+    '[style*="background-image"]',
+  ].join(', ');
+  const dialog = {
+    async innerText() { return `${itemUrl}\nCHIPING.CO.IL`; },
+    locator(selector) {
+      if (selector === 'a[href]') {
+        return { async evaluateAll() { return [itemUrl]; } };
+      }
+      if (selector === visualSelector) {
+        return {
+          async evaluateAll() {
+            return [{
+              width: 500,
+              height: 261,
+              visible: true,
+              tagName: 'IMG',
+              imageLoaded: true,
+              clickTargets: ['https://www.facebook.com/groups/chiping#?preview'],
+            }];
+          },
+        };
+      }
+      throw new Error(`Unexpected selector: ${selector}`);
+    },
+  };
+  const page = {
+    locator(selector) {
+      assert.equal(selector, '[role="dialog"]');
+      return { last() { return dialog; } };
+    },
+    async waitForTimeout() {},
+  };
+
+  const result = await waitForFacebookLinkPreview(page, itemUrl);
+  assert.equal(result.hasTargetAnchor, true);
+  assert.equal(result.visualMetrics[0].imageLoaded, true);
 });
 
 test('Facebook URL range selection fails closed when the staged URL is absent', async () => {
