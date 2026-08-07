@@ -2,7 +2,10 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { restoreEncryptedActionState } from './action-state.mjs';
 import { loadConfig } from './config.mjs';
-import { previewFacebookGroupLinkJob } from './facebook.mjs';
+import {
+  previewFacebookGroupLinkJob,
+  previewFacebookShareDialogJob,
+} from './facebook.mjs';
 import { JobStore } from './store.mjs';
 
 async function writeOutputs(values) {
@@ -47,7 +50,11 @@ export async function previewFacebookLink(env = process.env, options = {}) {
   if (!queuedMessage) throw new Error('Facebook preview product has no queued description');
   const message = `${queuedMessage}\n\n${itemUrl}`;
 
-  const result = await (options.previewJob || previewFacebookGroupLinkJob)({
+  const previewFlow = String(env.FACEBOOK_PREVIEW_FLOW || 'composer').trim().toLowerCase();
+  const defaultPreviewJob = previewFlow === 'share_dialog'
+    ? previewFacebookShareDialogJob
+    : previewFacebookGroupLinkJob;
+  const result = await (options.previewJob || defaultPreviewJob)({
     ...queuedJob.payload,
     message,
     imageUrl,

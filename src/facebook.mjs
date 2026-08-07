@@ -2034,6 +2034,37 @@ export async function previewFacebookGroupLinkJob(payload, config, options = {})
   }
 }
 
+export async function previewFacebookShareDialogJob(payload, config, options = {}) {
+  validatePayload(payload);
+  const playwright = options.playwright || await import('playwright');
+  const session = await createFacebookContext(playwright.chromium, config);
+  const { context } = session;
+  try {
+    const page = context.pages()[0] || await context.newPage();
+    await page.goto(config.groupUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await loginIfNeeded(page, config);
+    await selectPostingProfile(page, config);
+    const shareUrl = buildFacebookPreviewShareUrl(payload.itemUrl, payload.imageUrl);
+    const dialogUrl = `https://www.facebook.com/sharer/sharer.php?display=popup&u=${encodeURIComponent(shareUrl)}`;
+    await page.goto(dialogUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForTimeout(5000);
+    if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
+    await captureFacebookDebug(page, config, 'share-dialog-dry-run', {
+      pageUrl: page.url(),
+      shareUrl,
+      bodyText: String(await page.locator('body').innerText().catch(() => '')).slice(0, 3000),
+    });
+    if (options.screenshotPath) {
+      await page.screenshot({ path: options.screenshotPath, fullPage: true });
+    }
+    return { ready: true, pageUrl: page.url(), shareUrl };
+  } finally {
+    if (session.stateFile) await context.storageState({ path: session.stateFile }).catch(() => {});
+    await context.close();
+    if (session.browser) await session.browser.close();
+  }
+}
+
 export async function postFacebookGroupJob(job, config, options = {}) {
   let readiness;
   try {

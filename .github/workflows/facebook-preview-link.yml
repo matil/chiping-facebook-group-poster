@@ -11,6 +11,14 @@ on:
         description: Exact prepared Open Graph image URL
         required: true
         type: string
+      flow:
+        description: Non-posting Facebook preview flow
+        required: false
+        default: composer
+        type: choice
+        options:
+          - composer
+          - share_dialog
 
 permissions:
   actions: read
@@ -59,6 +67,7 @@ jobs:
         env:
           FACEBOOK_PREVIEW_PRODUCT_ID: ${{ inputs.product_id }}
           FACEBOOK_PREVIEW_IMAGE_URL: ${{ inputs.image_url }}
+          FACEBOOK_PREVIEW_FLOW: ${{ inputs.flow }}
           FACEBOOK_ACTION_STATE_FILE: ${{ github.workspace }}/.facebook-state/facebook-agent.enc
           FACEBOOK_STATE_ENCRYPTION_KEY: ${{ secrets.FACEBOOK_STATE_ENCRYPTION_KEY }}
           FACEBOOK_POSTING_PROFILE_NAME: ${{ secrets.FACEBOOK_POSTING_PROFILE_NAME }}
