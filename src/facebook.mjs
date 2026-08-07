@@ -41,6 +41,13 @@ export class FacebookSessionRequiredError extends Error {
   }
 }
 
+export class FacebookTransientUiError extends Error {
+  constructor(message = 'Facebook group interface did not finish loading') {
+    super(message);
+    this.name = 'FacebookTransientUiError';
+  }
+}
+
 function firstVisibleLocator(page, selectors) {
   return (async () => {
     for (const selector of selectors) {
@@ -55,6 +62,16 @@ export async function findFacebookGroupComposer(page) {
   await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
   await page.waitForTimeout(500);
   return firstVisibleLocator(page, COMPOSER_SELECTORS);
+}
+
+export async function waitForFacebookGroupComposer(page, timeoutMs = 20000) {
+  const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 20000);
+  while (Date.now() < deadline) {
+    const composer = await findFacebookGroupComposer(page);
+    if (composer) return composer;
+    await page.waitForTimeout(500);
+  }
+  return null;
 }
 
 export async function findFacebookComposerTextBox(page, timeoutMs = 15000) {
@@ -2022,8 +2039,17 @@ export async function previewFacebookGroupLinkJob(payload, config, options = {})
       payload.imageUrl,
       fetchImpl
     );
-    const composer = await findFacebookGroupComposer(page);
-    if (!composer) throw new Error('Facebook group composer was not found');
+    let composer = await waitForFacebookGroupComposer(page);
+    if (!composer) {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+      await loginIfNeeded(page, config);
+      await selectPostingProfile(page, config);
+      await recoverBlankFacebookPage(page, config.groupUrl);
+      composer = await waitForFacebookGroupComposer(page);
+    }
+    if (!composer) {
+      throw new FacebookTransientUiError('Facebook group composer did not finish loading');
+    }
     await composer.click();
     try {
       const textBox = await findFacebookComposerTextBox(page);
@@ -2161,8 +2187,17 @@ export async function postFacebookGroupJob(job, config, options = {}) {
     await recoverBlankFacebookPage(page, config.groupUrl);
     await sortFacebookGroupFeedNewest(page);
 
-    const composer = await findFacebookGroupComposer(page);
-    if (!composer) throw new Error('Facebook group composer was not found');
+    let composer = await waitForFacebookGroupComposer(page);
+    if (!composer) {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+      await loginIfNeeded(page, config);
+      await selectPostingProfile(page, config);
+      await recoverBlankFacebookPage(page, config.groupUrl);
+      composer = await waitForFacebookGroupComposer(page);
+    }
+    if (!composer) {
+      throw new FacebookTransientUiError('Facebook group composer did not finish loading');
+    }
     await composer.click();
 
     const textBox = await findFacebookComposerTextBox(page);
@@ -2255,6 +2290,7 @@ export async function postFacebookGroupJob(job, config, options = {}) {
       && !(error instanceof FacebookPostUnavailableError)
       && !(error instanceof FacebookPostMediaRequiredError)
       && !(error instanceof FacebookPostPreparationRequiredError)
+      && !(error instanceof FacebookTransientUiError)
     ) {
       throw new FacebookPostPreparationRequiredError(
         String(error?.message || 'Facebook post preparation failed').slice(0, 500)

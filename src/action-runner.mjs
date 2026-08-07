@@ -6,6 +6,7 @@ import {
   FacebookPostPreparationRequiredError,
   FacebookPostUnavailableError,
   FacebookSessionRequiredError,
+  FacebookTransientUiError,
   deleteFacebookGroupPost,
   deleteFacebookGroupPostByMessage,
   postFacebookGroupJob,
@@ -301,6 +302,13 @@ export async function runGitHubAction(env = process.env, options = {}) {
             outcome = 'blocked';
             alert = true;
           }
+        } else if (error instanceof FacebookTransientUiError) {
+          await store.markRetry(
+            job.id,
+            error.message,
+            new Date(nowMs + AMAZON_DEALS_POST_INTERVAL_MS).toISOString()
+          );
+          outcome = 'retry';
         } else {
           const terminalError = error instanceof FacebookSessionRequiredError
             || error instanceof FacebookPostPreparationRequiredError;

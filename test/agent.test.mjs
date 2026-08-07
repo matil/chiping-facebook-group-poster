@@ -33,6 +33,7 @@ import {
   verifyFacebookPostImageDestination,
   waitForChipingLinkPreviewMetadata,
   waitForFacebookComposerToClose,
+  waitForFacebookGroupComposer,
   waitForFacebookLinkPreview,
 } from '../src/facebook.mjs';
 
@@ -1804,7 +1805,7 @@ test('Facebook publisher uses a clickable link preview instead of uploading a ph
   assert.match(publisher, /verifyFacebookPostImageDestination/);
   assert.match(
     publisher,
-    /if \(existing\.incomplete\)[\s\S]*page = await navigateFacebookForVerification\(page, config\.groupUrl\);[\s\S]*const composer = await findFacebookGroupComposer\(page\)/
+    /if \(existing\.incomplete\)[\s\S]*page = await navigateFacebookForVerification\(page, config\.groupUrl\);[\s\S]*let composer = await waitForFacebookGroupComposer\(page\)/
   );
   const postSubmitVerification = publisher.slice(publisher.indexOf('await postButton.click()'));
   assert.match(postSubmitVerification, /timeoutMs: 60000/);
@@ -2028,6 +2029,31 @@ test('current Facebook text-only composer is recognized after scrolling to the t
   assert.equal(await findFacebookGroupComposer(page), composer);
   assert.equal(scrolledToTop, true);
   assert.equal(matchedSelector, '[role="button"]:has-text("Write something")');
+});
+
+test('Facebook composer wait tolerates a loading group skeleton', async () => {
+  let checks = 0;
+  let waits = 0;
+  const composer = { async isVisible() { return true; } };
+  const page = {
+    async evaluate() {},
+    async waitForTimeout() { waits += 1; },
+    locator(selector) {
+      return {
+        first() {
+          if (selector !== '[role="button"]:has-text("Write something")') {
+            return { async isVisible() { return false; } };
+          }
+          checks += 1;
+          return checks >= 3 ? composer : { async isVisible() { return false; } };
+        },
+      };
+    },
+  };
+
+  assert.equal(await waitForFacebookGroupComposer(page, 1000), composer);
+  assert.equal(checks, 3);
+  assert.equal(waits >= 4, true);
 });
 
 test('Facebook composer text lookup ignores visible comment editors', async () => {

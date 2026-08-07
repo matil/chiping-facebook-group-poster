@@ -15,6 +15,7 @@ import {
   FacebookPostMediaRequiredError,
   FacebookPostUnavailableError,
   FacebookSessionRequiredError,
+  FacebookTransientUiError,
 } from '../src/facebook.mjs';
 import { blocksFacebookQueue } from '../src/block-policy.mjs';
 import { JobStore } from '../src/store.mjs';
@@ -403,6 +404,30 @@ test('GitHub Action permanently saves a migrated legacy posted-product ledger', 
       post_url: postUrl,
       posted_at: postedAt,
     });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('GitHub Action keeps the same item retryable when Facebook leaves the group loading', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, {
+      client_payload: { payload: payload({ posting_policy: 'amazon-deals-all' }) },
+    });
+    env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    env.POSTER_MAX_ATTEMPTS = '1';
+
+    const result = await runGitHubAction(env, {
+      postJob: async () => {
+        throw new FacebookTransientUiError('Facebook group composer did not finish loading');
+      },
+    });
+
+    assert.equal(result.outcome, 'retry');
+    assert.equal(result.summary.retry, 1);
+    assert.equal(result.summary.blocked, 0);
+    assert.equal(result.pendingProductIds, '9301');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
