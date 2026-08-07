@@ -1632,9 +1632,10 @@ export function hasLoadedFacebookPreviewVisual(
       if (clickTargets.some((value) => referencesExactChipingTarget(value, requiredTarget))) {
         return true;
       }
+      const absoluteClickTargets = clickTargets.filter((value) => /^https?:\/\//i.test(value));
       return allowFacebookComposerWrapper
-        && clickTargets.length > 0
-        && clickTargets.every(isFacebookComposerWrapperTarget);
+        && absoluteClickTargets.length > 0
+        && absoluteClickTargets.every(isFacebookComposerWrapperTarget);
     })())
   ));
 }

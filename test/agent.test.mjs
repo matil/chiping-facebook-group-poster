@@ -2588,7 +2588,10 @@ test('Facebook composer accepts its internal image wrapper only beside the exact
               visible: true,
               tagName: 'IMG',
               imageLoaded: true,
-              clickTargets: ['https://www.facebook.com/groups/chiping#?preview'],
+              clickTargets: [
+                'https://www.facebook.com/groups/chiping#?preview',
+                '#?preview',
+              ],
             }];
           },
         };
