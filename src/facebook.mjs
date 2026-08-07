@@ -2049,6 +2049,11 @@ export async function previewFacebookShareDialogJob(payload, config, options = {
     await page.goto(dialogUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForTimeout(5000);
     if (await isSecurityChallenge(page)) throw new FacebookSessionRequiredError();
+    const destinationControl = page.getByRole('button', { name: /^Feed$/i }).last();
+    if (await destinationControl.isVisible().catch(() => false)) {
+      await destinationControl.click();
+      await page.waitForTimeout(1500);
+    }
     await captureFacebookDebug(page, config, 'share-dialog-dry-run', {
       pageUrl: page.url(),
       shareUrl,
