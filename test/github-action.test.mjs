@@ -407,7 +407,49 @@ test('GitHub Action permanently saves a migrated legacy posted-product ledger', 
   }
 });
 
-test('GitHub Action blocks instead of duplicating a published post with no product image', async () => {
+test('GitHub Action deletes an incomplete post and retries the same product', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, {
+      client_payload: { payload: payload({ posting_policy: 'amazon-deals-all' }) },
+    });
+    env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+
+    let deletedPostUrl = '';
+    const result = await runGitHubAction(env, {
+      postJob: async () => {
+        throw new FacebookPostMediaRequiredError(undefined, {
+          postUrl: 'https://www.facebook.com/groups/chiping/posts/9301/',
+        });
+      },
+      deletePost: async (postUrl) => {
+        deletedPostUrl = postUrl;
+        return { deleted: true, postUrl };
+      },
+    });
+
+    assert.equal(deletedPostUrl, 'https://www.facebook.com/groups/chiping/posts/9301/');
+    assert.equal(result.outcome, 'retry');
+    assert.equal(result.summary.blocked, 0);
+    assert.equal(result.summary.retry, 1);
+
+    const restoredDir = path.join(directory, 'restored-media-retry');
+    await restoreEncryptedActionState({
+      encryptedFile: env.FACEBOOK_ACTION_STATE_FILE,
+      secret: stateKey,
+      dataDir: restoredDir,
+      storageStateFile: path.join(restoredDir, 'storage.json'),
+    });
+    const state = JSON.parse(await readFile(path.join(restoredDir, 'queue.json'), 'utf8'));
+    const retryJob = Object.values(state.jobs).find((job) => job.status === 'retry');
+    assert.equal(retryJob.product_id, '9301');
+    assert.match(retryJob.last_error, /retrying the same item/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('GitHub Action quarantines an incomplete post when deletion cannot be confirmed', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
   try {
     const env = await actionEnvironment(directory, {
@@ -421,26 +463,42 @@ test('GitHub Action blocks instead of duplicating a published post with no produ
           postUrl: 'https://www.facebook.com/groups/chiping/posts/9301/',
         });
       },
+      deletePost: async () => {
+        throw new Error('Facebook delete failed');
+      },
     });
 
     assert.equal(result.outcome, 'blocked');
-    assert.match(result.blockedReason, /without its product image link card/);
     assert.equal(result.summary.blocked, 1);
     assert.equal(result.summary.retry, 0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
-    const restoredDir = path.join(directory, 'restored-media-block');
-    await restoreEncryptedActionState({
-      encryptedFile: env.FACEBOOK_ACTION_STATE_FILE,
-      secret: stateKey,
-      dataDir: restoredDir,
-      storageStateFile: path.join(restoredDir, 'storage.json'),
+test('GitHub Action deletes an incomplete post by description when Facebook hides its permalink', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'facebook-action-'));
+  try {
+    const env = await actionEnvironment(directory, {
+      client_payload: { payload: payload({ posting_policy: 'amazon-deals-all' }) },
     });
-    const state = JSON.parse(await readFile(path.join(restoredDir, 'queue.json'), 'utf8'));
-    const blockedJob = Object.values(state.jobs).find((job) => job.status === 'blocked');
-    assert.equal(
-      blockedJob.failed_post_url,
-      'https://www.facebook.com/groups/chiping/posts/9301/'
-    );
+    env.FACEBOOK_ACTION_POSTING_ENABLED = 'true';
+    let cleanedProductId = '';
+
+    const result = await runGitHubAction(env, {
+      postJob: async () => {
+        throw new FacebookPostMediaRequiredError();
+      },
+      deletePostByMessage: async (job) => {
+        cleanedProductId = job.product_id;
+        return { deleted: true, postUrl: '' };
+      },
+    });
+
+    assert.equal(cleanedProductId, '9301');
+    assert.equal(result.outcome, 'retry');
+    assert.equal(result.pendingProductIds, '9301');
+    assert.equal(result.summary.retry, 1);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

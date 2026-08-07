@@ -1546,15 +1546,13 @@ export async function waitForFacebookLinkPreview(
     ]);
     const hasTargetAnchor = hrefs.some((href) => referencesExactChipingTarget(href, chipingTarget));
     const hostOccurrences = String(dialogText || '').toLowerCase().split(host).length - 1;
-    const hasLargePreviewVisual = hasLoadedFacebookPreviewVisual(visualMetrics);
+    const hasLargePreviewVisual = hasLoadedFacebookPreviewVisual(visualMetrics, chipingTarget);
     lastProbe = {
       hasTargetAnchor,
       hostOccurrences,
       hrefs: hrefs.slice(0, 20),
       visualMetrics: visualMetrics.slice(0, 30),
     };
-    // Facebook keeps the external URL and the visual card in separate React
-    // controls. The card href is an internal fragment until publication.
     if (hasLargePreviewVisual && hasTargetAnchor) {
       return { hasTargetAnchor, hostOccurrences, visualMetrics };
     }
@@ -1879,24 +1877,23 @@ export async function prepareFacebookComposerLinkPreview(
   cleanItemUrl.searchParams.delete('fb_preview');
   const retainedItemUrl = cleanItemUrl.href;
 
-  await fillFacebookComposerText(page, textBox, `${cleanMessage}\n\n${itemUrl}`);
+  await fillFacebookComposerText(page, textBox, `${cleanMessage}\n\n${retainedItemUrl}`);
   const stagedPreview = await waitForFacebookLinkPreview(
     page,
-    itemUrl,
+    retainedItemUrl,
     timeoutMs,
     textBox
   );
-  const selectedUrl = await selectFacebookComposerText(textBox, itemUrl);
-  if (!selectedUrl) throw new Error('Facebook composer preview URL could not be selected');
-  await page.keyboard.press('Backspace');
-  await textBox.click({ timeout: 10000 });
-  await page.keyboard.press('Control+End');
-  await page.keyboard.insertText(retainedItemUrl);
-  await page.waitForTimeout(500);
+  // Mutating the URL after Facebook creates the card can leave a visual shell
+  // that is discarded when the post is submitted. Let the original card settle.
+  await page.waitForTimeout(3000);
   const visibleText = String(await textBox.innerText().catch(() => ''));
-  const target = chipingFacebookTarget(itemUrl);
+  const target = chipingFacebookTarget(retainedItemUrl);
   if (!target || !referencesExactChipingTarget(visibleText, target)) {
     throw new Error('Facebook composer did not retain the clean Chiping item URL');
+  }
+  if (!normalizedFacebookText(visibleText).includes(normalizedFacebookText(cleanMessage))) {
+    throw new Error('Facebook composer did not retain the complete post description');
   }
   if (visibleText.includes('fb_preview=')) {
     throw new Error('Facebook composer retained the preview cache key');
@@ -1904,7 +1901,7 @@ export async function prepareFacebookComposerLinkPreview(
 
   const retainedPreview = await waitForFacebookLinkPreview(
     page,
-    itemUrl,
+    retainedItemUrl,
     Math.min(Math.max(5000, Number(timeoutMs) || 30000), 10000),
     textBox
   );

@@ -7,6 +7,7 @@ import {
   FacebookPostUnavailableError,
   FacebookSessionRequiredError,
   deleteFacebookGroupPost,
+  deleteFacebookGroupPostByMessage,
   postFacebookGroupJob,
   verifyFacebookGroupAccess,
 } from './facebook.mjs';
@@ -275,9 +276,33 @@ export async function runGitHubAction(env = process.env, options = {}) {
         if (error instanceof FacebookPostUnavailableError) {
           await store.markSkipped(job.id, error.message);
           outcome = 'skipped_unavailable';
+        } else if (error instanceof FacebookPostMediaRequiredError) {
+          try {
+            const cleanup = error.postUrl
+              ? await (options.deletePost || deleteFacebookGroupPost)(error.postUrl, config, options)
+              : await (options.deletePostByMessage || deleteFacebookGroupPostByMessage)(
+                  job,
+                  config,
+                  options
+                );
+            if (cleanup?.deleted !== true) {
+              throw new Error('Facebook malformed post cleanup was not confirmed');
+            }
+            await store.markRetry(
+              job.id,
+              'Facebook removed an incomplete post; retrying the same item',
+              new Date(nowMs + AMAZON_DEALS_POST_INTERVAL_MS).toISOString()
+            );
+            outcome = 'retry';
+          } catch (cleanupError) {
+            await store.markBlocked(job.id, error.message, {
+              failedPostUrl: error.postUrl,
+            });
+            outcome = 'blocked';
+            alert = true;
+          }
         } else {
           const terminalError = error instanceof FacebookSessionRequiredError
-            || error instanceof FacebookPostMediaRequiredError
             || error instanceof FacebookPostPreparationRequiredError;
           const message = terminalError ? error.message : 'Facebook group post failed';
           if (terminalError || attempts >= config.maxAttempts) {

@@ -2446,13 +2446,12 @@ test('Facebook status checker fails closed when encrypted state is missing', asy
   }
 });
 
-test('Facebook composer stages a versioned card and retains only the clean visible item URL', async () => {
+test('Facebook composer stages the clean item URL once and leaves its card untouched', async () => {
   const canonicalUrl = 'https://www.chiping.co.il/?item=9301';
-  const itemUrl = `${canonicalUrl}&fb_preview=fresh-image`;
+  const itemUrl = canonicalUrl;
   const cleanMessage = '\u05e7\u05d5\u05e4\u05d5\u05e0\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd \u05dc-AliExpress';
   let value = '';
   let previewReady = false;
-  let selection = '';
   const fills = [];
   const visualSelector = [
     'a[href]',
@@ -2501,11 +2500,6 @@ test('Facebook composer stages a versioned card and retains only the clean visib
       if (text.includes(itemUrl)) previewReady = true;
     },
     async innerText() { return value; },
-    async evaluate(_callback, target) {
-      if (!value.includes(target)) return false;
-      selection = target;
-      return true;
-    },
     locator(selector) {
       assert.equal(selector, 'xpath=ancestor::*[@role="dialog"][1]');
       return dialog;
@@ -2514,13 +2508,8 @@ test('Facebook composer stages a versioned card and retains only the clean visib
   const page = {
     async waitForTimeout() {},
     keyboard: {
-      async press(key) {
-        if (key === 'Backspace' && selection) {
-          value = value.replace(selection, '');
-          selection = '';
-        }
-      },
-      async insertText(text) { value += text; },
+      async press() {},
+      async insertText() {},
     },
   };
 
@@ -2554,6 +2543,21 @@ test('Facebook composer rejects an image card that links only to the homepage', 
 
   assert.equal(hasLoadedFacebookPreviewVisual(homepageCard), true);
   assert.equal(hasLoadedFacebookPreviewVisual(homepageCard, itemTarget), false);
+
+  const splitCard = [{
+    width: 245,
+    height: 17,
+    visible: true,
+    imageLoaded: false,
+    clickTargets: ['https://www.chiping.co.il/items/9302'],
+  }, {
+    width: 500,
+    height: 262,
+    visible: true,
+    imageLoaded: true,
+    clickTargets: ['https://www.facebook.com/groups/chiping/#composer'],
+  }];
+  assert.equal(hasLoadedFacebookPreviewVisual(splitCard, itemTarget), false);
 });
 
 test('Facebook URL range selection fails closed when the staged URL is absent', async () => {
